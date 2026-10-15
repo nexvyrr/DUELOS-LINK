@@ -132,6 +132,7 @@ local ConfigSection = Window:Section({ Title = "Configuraciones", Opened = true 
 local Tabs = {
     ExtrasScripts = ExtrasScriptsSection:Tab({ Title = "Extras scripts", Icon = "solar:code-square-bold" }),
     Graficos = ExtrasScriptsSection:Tab({ Title = "Gráficos", Icon = "solar:palette-bold" }),
+    Botones = PrincipalesSection:Tab({ Title = "Botones", Icon = "solar:gamepad-bold" }),
     Aim = PrincipalesSection:Tab({ Title = "Aimbot", Icon = "solar:target-bold" }),
     Vis = PrincipalesSection:Tab({ Title = "Visual", Icon = "solar:eye-bold" }),
     KillAll = PrincipalesSection:Tab({ Title = "Kill All", Icon = "solar:danger-triangle-bold" }),
@@ -4727,6 +4728,275 @@ sinVidaTog = Tabs.Graficos:Toggle({
             if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
         end
         ApplySinVida(state)
+    end
+})
+end
+
+do
+local TweenService = game:GetService("TweenService")
+
+local BTN_SIZE = 56
+local GREEN    = Color3.fromRGB(144, 238, 144)
+local ICON_OFF = Color3.fromRGB(235, 235, 245)
+local BG_OFF   = Color3.fromRGB(18, 18, 26)
+local BG_ON    = Color3.fromRGB(20, 40, 30)
+local TI       = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+local floatGui = Instance.new("ScreenGui")
+floatGui.Name = "NexvyrHub_FloatingButtons"
+floatGui.ResetOnSpawn = false
+floatGui.IgnoreGuiInset = true
+floatGui.DisplayOrder = 1000
+floatGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+floatGui.Enabled = false
+floatGui.Parent = player:WaitForChild("PlayerGui")
+
+local function tween(obj, props, info)
+    TweenService:Create(obj, info or TI, props):Play()
+end
+
+local function viewport()
+    local vp = floatGui.AbsoluteSize
+    if vp.X < 10 then
+        local cam = workspace.CurrentCamera
+        vp = cam and cam.ViewportSize or Vector2.new(800, 600)
+    end
+    return vp
+end
+
+local function clampPos(x, y)
+    local vp = viewport()
+    return math.clamp(x, 0, math.max(0, vp.X - BTN_SIZE)),
+           math.clamp(y, 0, math.max(0, vp.Y - BTN_SIZE))
+end
+
+local function makeIconKit(holder, paints)
+    local function F(x, y, w, h, round, noPaint)
+        local f = Instance.new("Frame")
+        f.BorderSizePixel = 0
+        f.BackgroundColor3 = ICON_OFF
+        f.Position = UDim2.fromOffset(x, y)
+        f.Size = UDim2.fromOffset(w, h)
+        if round then
+            local c = Instance.new("UICorner")
+            c.CornerRadius = round == true and UDim.new(1, 0) or UDim.new(0, round)
+            c.Parent = f
+        end
+        f.Parent = holder
+        if not noPaint then paints[#paints + 1] = {f, "BackgroundColor3"} end
+        return f
+    end
+    local function R(x, y, w, h, thick)
+        local f = Instance.new("Frame")
+        f.BorderSizePixel = 0
+        f.BackgroundTransparency = 1
+        f.Position = UDim2.fromOffset(x, y)
+        f.Size = UDim2.fromOffset(w, h)
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(1, 0)
+        c.Parent = f
+        local s = Instance.new("UIStroke")
+        s.Color = ICON_OFF
+        s.Thickness = thick
+        s.Parent = f
+        f.Parent = holder
+        paints[#paints + 1] = {s, "Color"}
+        return f
+    end
+    return F, R
+end
+
+local Icons = {
+    ESP = function(F, R)
+        R(0, 6, 30, 18, 2.2)
+        F(11, 11, 8, 8, true)
+    end,
+    AutoShoot = function(F, R)
+        R(5, 5, 20, 20, 2)
+        F(14, 0, 2, 8)
+        F(14, 22, 2, 8)
+        F(0, 14, 8, 2)
+        F(22, 14, 8, 2)
+        F(13.5, 13.5, 3, 3, true)
+    end,
+    SilentAim = function(F, R)
+        R(1, 1, 28, 28, 2)
+        R(8, 8, 14, 14, 2)
+        F(12.5, 12.5, 5, 5, true)
+        local l = F(0, 0, 2.4, 16)
+        l.AnchorPoint = Vector2.new(0.5, 0.5)
+        l.Position = UDim2.fromOffset(22, 8)
+        l.Rotation = 45
+    end,
+    Invisible = function(F, R)
+        F(5, 3, 20, 20, true)
+        F(5, 13, 20, 9)
+        F(5, 18, 6.6, 6.6, true)
+        F(11.7, 18, 6.6, 6.6, true)
+        F(18.4, 18, 6.6, 6.6, true)
+        local e1 = F(10, 10, 3, 5, true, true)
+        local e2 = F(17, 10, 3, 5, true, true)
+        e1.BackgroundColor3 = BG_OFF
+        e2.BackgroundColor3 = BG_OFF
+    end,
+}
+
+local defs = {
+    { Name = "ESP",       Ui = "TogEsp",             Get = function() return espEnabled end },
+    { Name = "AutoShoot", Ui = "TogAutoShootAgr",    Get = function() return autoShootAgresivoEnabled end },
+    { Name = "SilentAim", Ui = "TogSilentAimManual", Get = function() return silentAimManualEnabled end },
+    { Name = "Invisible", Ui = "TogInvisible",       Get = function() return InvisibilityActive end },
+}
+
+local buttons = {}
+
+local function createButton(def, index)
+    local btn = Instance.new("TextButton")
+    btn.Name = def.Name
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.Active = true
+    btn.BorderSizePixel = 0
+    btn.BackgroundColor3 = BG_OFF
+    btn.BackgroundTransparency = 0.12
+    btn.Size = UDim2.fromOffset(BTN_SIZE, BTN_SIZE)
+    btn.Parent = floatGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 16)
+    corner.Parent = btn
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.new(1, 1, 1)
+    stroke.Transparency = 0.75
+    stroke.Thickness = 1.5
+    stroke.Parent = btn
+
+    local scale = Instance.new("UIScale")
+    scale.Scale = 1
+    scale.Parent = btn
+
+    local holder = Instance.new("Frame")
+    holder.BackgroundTransparency = 1
+    holder.AnchorPoint = Vector2.new(0.5, 0.5)
+    holder.Position = UDim2.fromScale(0.5, 0.5)
+    holder.Size = UDim2.fromOffset(30, 30)
+    holder.Parent = btn
+
+    local paints = {}
+    local F, R = makeIconKit(holder, paints)
+    Icons[def.Name](F, R)
+
+    local function homePos()
+        local vp = viewport()
+        return clampPos(vp.X - BTN_SIZE - 16, vp.Y * 0.28 + (index - 1) * (BTN_SIZE + 10))
+    end
+    local function goHome()
+        local x, y = homePos()
+        btn.Position = UDim2.fromOffset(x, y)
+    end
+    goHome()
+
+    local isOn = nil
+    local function setVisual(on, instant)
+        if isOn == on then return end
+        local first = isOn == nil
+        isOn = on
+        local info = (instant or first) and TweenInfo.new(0) or TI
+        tween(btn, { BackgroundColor3 = on and BG_ON or BG_OFF, BackgroundTransparency = on and 0.05 or 0.12 }, info)
+        tween(stroke, { Color = on and GREEN or Color3.new(1, 1, 1), Transparency = on and 0 or 0.75, Thickness = on and 2.5 or 1.5 }, info)
+        for _, p in ipairs(paints) do
+            tween(p[1], { [p[2]] = on and GREEN or ICON_OFF }, info)
+        end
+        if not instant and not first then
+            tween(scale, { Scale = 1.14 }, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out))
+            task.delay(0.1, function()
+                tween(scale, { Scale = 1 }, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
+            end)
+        end
+    end
+
+    local dragging, moved = false, false
+    local dragInput, startMouse, startPos
+
+    btn.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        dragging, moved = true, false
+        dragInput = input
+        startMouse = Vector2.new(input.Position.X, input.Position.Y)
+        startPos = Vector2.new(btn.Position.X.Offset, btn.Position.Y.Offset)
+        tween(scale, { Scale = 0.9 }, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out))
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input ~= dragInput and input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+        local delta = Vector2.new(input.Position.X, input.Position.Y) - startMouse
+        if not moved and delta.Magnitude > 7 then
+            moved = true
+            tween(scale, { Scale = 1.08 }, TweenInfo.new(0.12))
+        end
+        if moved then
+            local x, y = clampPos(startPos.X + delta.X, startPos.Y + delta.Y)
+            btn.Position = UDim2.fromOffset(x, y)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if not dragging or input ~= dragInput then return end
+        dragging = false
+        tween(scale, { Scale = 1 }, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
+        if not moved then
+            local newState = not def.Get()
+            local el = UIElements[def.Ui]
+            if el then pcall(function() el:Set(newState) end) end
+            setVisual(def.Get() == true)
+        end
+    end)
+
+    buttons[#buttons + 1] = {
+        Sync = function() setVisual(def.Get() == true) end,
+        Reclamp = function()
+            local x, y = clampPos(btn.Position.X.Offset, btn.Position.Y.Offset)
+            btn.Position = UDim2.fromOffset(x, y)
+        end,
+        Home = goHome,
+    }
+end
+
+for i, def in ipairs(defs) do createButton(def, i) end
+
+floatGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+    for _, b in ipairs(buttons) do b.Reclamp() end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if floatGui.Enabled then
+            for _, b in ipairs(buttons) do b.Sync() end
+        end
+    end
+end)
+
+Tabs.Botones:Section({ Title = "Botones flotantes", Icon = "solar:gamepad-bold" })
+
+UIElements.TogFloatButtons = Tabs.Botones:Toggle({
+    Title = "Mostrar botones flotantes",
+    Value = false,
+    Callback = function(v)
+        floatGui.Enabled = v
+        if v then for _, b in ipairs(buttons) do b.Sync() end end
+    end
+})
+
+Tabs.Botones:Button({
+    Title = "Restablecer posiciones",
+    Icon = "solar:refresh-bold",
+    Variant = "Secondary",
+    Callback = function()
+        for _, b in ipairs(buttons) do b.Home() end
     end
 })
 end
