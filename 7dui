@@ -107,7 +107,7 @@ local Window = WindUI:CreateWindow({
     Transparent = false,
     NewElements = true,
     HideSearchBar = false,
-    ToggleKey = Enum.KeyCode.LeftControl,
+    ToggleKey = Enum.KeyCode.F15,
     Background = "rbxthumb://type=Asset&id=9405835683&w=420&h=420",
     BackgroundImageTransparency = 0.35,
     OpenButton = {
@@ -132,7 +132,6 @@ local ConfigSection = Window:Section({ Title = "Configuraciones", Opened = true 
 local Tabs = {
     ExtrasScripts = ExtrasScriptsSection:Tab({ Title = "Extras scripts", Icon = "solar:code-square-bold" }),
     Graficos = ExtrasScriptsSection:Tab({ Title = "Gráficos", Icon = "solar:palette-bold" }),
-    Keybinds = PrincipalesSection:Tab({ Title = "Keybinds", Icon = "solar:keyboard-bold" }),
     Aim = PrincipalesSection:Tab({ Title = "Aimbot", Icon = "solar:target-bold" }),
     Vis = PrincipalesSection:Tab({ Title = "Visual", Icon = "solar:eye-bold" }),
     KillAll = PrincipalesSection:Tab({ Title = "Kill All", Icon = "solar:danger-triangle-bold" }),
@@ -4732,149 +4731,18 @@ sinVidaTog = Tabs.Graficos:Toggle({
 })
 end
 
-do (function()
-    local DEFAULT_WINDOW_KEY = Enum.KeyCode.LeftControl
-    local order = {
-        { Id = "WindUI", Name = "WindUI (abrir/cerrar)" },
-        { Id = "ESP", Name = "ESP Jugadores" },
-        { Id = "AutoShootAgr", Name = "Auto Shoot (Agresivo)" },
-        { Id = "KillAll", Name = "Kill All" },
-        { Id = "SilentAim", Name = "Silent Aim" },
-    }
-    local names = {}
-    for _, item in ipairs(order) do names[item.Id] = item.Name end
-
-    local binds = { WindUI = DEFAULT_WINDOW_KEY }
-    local buttons = {}
-    local listeningId = nil
-    local libraryHandlesWindow = false
+do
+    local WINDOW_KEY = Enum.KeyCode.LeftControl
     local windowOpen = true
 
-    local function keyText(id)
-        local key = binds[id]
-        return key and key.Name or "Sin tecla"
-    end
-
-    local function refresh(id)
-        local element = buttons[id]
-        if not element then return end
-        local title = names[id] .. ": " .. keyText(id)
-        local desc = listeningId == id and "Presiona una tecla... (Backspace = quitar)" or "Toca para asignar una tecla"
-        pcall(function() element:SetTitle(title) end)
-        pcall(function() element:SetDesc(desc) end)
-    end
-
-    local function applyWindowKey()
-        libraryHandlesWindow = false
-        if type(Window.SetToggleKey) == "function" then
-            libraryHandlesWindow = pcall(function() Window:SetToggleKey(binds.WindUI) end)
-        end
-    end
-
-    local function toggleWindow()
+    UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if input.KeyCode ~= WINDOW_KEY then return end
+        if UserInputService:GetFocusedTextBox() then return end
         if pcall(function() Window:Toggle() end) then return end
         windowOpen = not windowOpen
         pcall(function()
             if windowOpen then Window:Open() else Window:Close() end
         end)
-    end
-
-    local actions = {}
-
-    actions.ESP = function()
-        local value = not espEnabled
-        espEnabled = value
-        pcall(function() UIElements.TogEsp:Set(value) end)
-        if nexvyrRefreshTargetMonitor then nexvyrRefreshTargetMonitor() end
-        if value and espSettings.Glow and nexvyrStartESPWorker then nexvyrStartESPWorker() end
-    end
-
-    actions.AutoShootAgr = function()
-        local value = not autoShootAgresivoEnabled
-        autoShootAgresivoEnabled = value
-        pcall(function() UIElements.TogAutoShootAgr:Set(value) end)
-        if not value and not autoShootEnabled and nexvyrSetAimTarget then nexvyrSetAimTarget("Auto", nil) end
-        if nexvyrUpdateTargetFeatures then nexvyrUpdateTargetFeatures() end
-    end
-
-    actions.KillAll = function()
-        local value = not KillAllEnabled
-        KillAllEnabled = value
-        pcall(function() UIElements.TogKillAll:Set(value) end)
-        if nexvyrRefreshTargetMonitor then nexvyrRefreshTargetMonitor() end
-        if value then KillAllInstance:Start() else KillAllInstance:Stop() end
-    end
-
-    actions.SilentAim = function()
-        local value = not silentAimManualEnabled
-        silentAimManualEnabled = value
-        pcall(function() UIElements.TogSilentAimManual:Set(value) end)
-        if not value and not silentAimFovEnabled and nexvyrSetAimTarget then nexvyrSetAimTarget("Silent", nil) end
-        if nexvyrUpdateTargetFeatures then nexvyrUpdateTargetFeatures() end
-    end
-
-    local function startListening(id)
-        local previous = listeningId
-        listeningId = id
-        if previous and previous ~= id then refresh(previous) end
-        refresh(id)
-    end
-
-    Tabs.Keybinds:Section({ Title = "Teclas rápidas", Icon = "solar:keyboard-bold" })
-
-    for _, item in ipairs(order) do
-        local id = item.Id
-        buttons[id] = Tabs.Keybinds:Button({
-            Title = item.Name .. ": " .. keyText(id),
-            Desc = "Toca para asignar una tecla",
-            Variant = "Secondary",
-            Callback = function() startListening(id) end
-        })
-    end
-
-    applyWindowKey()
-
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-        local key = input.KeyCode
-        if key == Enum.KeyCode.Unknown then return end
-
-        if listeningId then
-            local id = listeningId
-            listeningId = nil
-            if key == Enum.KeyCode.Backspace then
-                binds[id] = (id == "WindUI") and DEFAULT_WINDOW_KEY or nil
-            else
-                local taken = false
-                for otherId, otherKey in pairs(binds) do
-                    if otherId ~= id and otherKey == key then
-                        if otherId == "WindUI" then
-                            taken = true
-                        else
-                            binds[otherId] = nil
-                            refresh(otherId)
-                        end
-                    end
-                end
-                if not taken then binds[id] = key end
-            end
-            if id == "WindUI" then applyWindowKey() end
-            refresh(id)
-            return
-        end
-
-        if gameProcessed then return end
-
-        if key == binds.WindUI then
-            if not libraryHandlesWindow then toggleWindow() end
-            return
-        end
-
-        for id, boundKey in pairs(binds) do
-            if id ~= "WindUI" and boundKey == key and actions[id] then
-                actions[id]()
-                return
-            end
-        end
     end)
-end)() end
+end
