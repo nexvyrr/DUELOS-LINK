@@ -19,6 +19,7 @@ local autoShootTargetPart = "Cabeza"
 local silentAimManualEnabled = false
 local silentAimFovEnabled = false
 local silentAimTargetPart = "Cabeza"
+local teamCheckEnabled = true
 local espEnabled = false
 local espColor = Color3.fromRGB(255, 255, 255)
 local espSettings = { Glow = true }
@@ -100,7 +101,7 @@ else
 end
 
 local Window = WindUI:CreateWindow({
-    Title = "NEXVYRHUB | DUELS <font color='#FFD700'>[v2.9] </font>",
+    Title = "NEXVYRHUB | DUELS <font color='#FFD700'>[v3.0] </font>",
     Author = "By 7.dui🇲🇽",
     Folder = "Nexvyr_WindUI",
     Acrylic = false,
@@ -942,6 +943,12 @@ isEnemy = function(targetPlayer)
     if not dmvsIsTargetAlive(targetPlayer) then return false end
     return dmvsPlayersAreEnemies(player, targetPlayer)
 end
+esEnemigoValido = function(other)
+    if not isEnemy(other) then return false end
+    local character = other.Character
+    return character ~= nil and not character:FindFirstChildOfClass("ForceField")
+        and dmvsIsTargetAlive(other)
+end
 local SAFE_ZONES = {
     {Center = Vector3.new(-320.50, 280.82, 16.00), Radius = 500},
     {Center = Vector3.new(1564.14, -155.45, 40.04), Radius = 300}
@@ -967,12 +974,6 @@ IsInMatchStrict = function()
     if estaEnLobby() then return false end
     dmvsRefreshScoreboardTeams(false)
     return dmvsTeamResolverState.InGame or dmvsIsInfectionMode()
-end
-esEnemigoValido = function(other)
-    if not isEnemy(other) then return false end
-    local character = other.Character
-    return character ~= nil and not character:FindFirstChildOfClass("ForceField")
-        and dmvsIsTargetAlive(other)
 end
 esCuchillo = function(tool)
     if not tool or not tool:IsA("Tool") then return false end
@@ -1057,6 +1058,7 @@ local function limpiarHitboxes()
     end
 end
 
+do
 local nexvyrHitboxWorkerRunning = false
 nexvyrStartHitboxWorker = function()
     if nexvyrHitboxWorkerRunning or not hitboxEnabled then return end
@@ -1114,6 +1116,7 @@ nexvyrStartHitboxWorker = function()
     nexvyrHitboxWorkerRunning = false
     if not hitboxEnabled then limpiarHitboxes() end
     end)
+end
 end
 
 local PadZoneConfig = {
@@ -2050,6 +2053,7 @@ UIElements.TogEquipGun = Tabs.Aim:Toggle({
     end
 })
 
+do
 local nexvyrEquipWorkerRunning = false
 nexvyrStartEquipWorker = function()
     if nexvyrEquipWorkerRunning or not equipGunEnabled then return end
@@ -2102,6 +2106,7 @@ nexvyrStartEquipWorker = function()
     nexvyrEquipWorkerRunning = false
     end)
 end
+end
 
 Tabs.Aim:Space()
 Tabs.Aim:Divider()
@@ -2149,6 +2154,7 @@ UIElements.SliFOVSize = Tabs.Aim:Slider({
     Callback = function(v) fovRadius = v end
 })
 
+do
 getgenv().NexvyrTargetPart = nil
 local oldNexvyrHook = getgenv().__NexvyrDeferredNamecall
 if oldNexvyrHook then oldNexvyrHook.Enabled = false end
@@ -2211,7 +2217,7 @@ local function nexvyrGetAimPoint()
     local char = player.Character
     if not char then return nil end
     local equipped = char:FindFirstChildOfClass("Tool")
-    if not esPistola(equipped) then return nil end
+    if not (esPistola(equipped) or (autoShootAgresivoEnabled and equipped and not esCuchillo(equipped))) then return nil end
     local target = nexvyrSelectedAimTarget()
     if not target then return nil end
     return target.Position, target
@@ -2420,64 +2426,94 @@ nexvyrStartAutoShootWorker = function()
             if not char or not char:FindFirstChild("HumanoidRootPart") then continue end
             local arma = char:FindFirstChildOfClass("Tool")
             if not arma or not arma:FindFirstChild("Handle") then nexvyrSetAimTarget("Auto", nil) continue end
-            if not esPistola(arma) then nexvyrSetAimTarget("Auto", nil) continue end
+            if autoShootAgresivoEnabled then
+                if esCuchillo(arma) then nexvyrSetAimTarget("Auto", nil) continue end
+            elseif not esPistola(arma) then
+                nexvyrSetAimTarget("Auto", nil) continue
+            end
             local closestTargetPart = nil
             local shortestDistance = math.huge
             local myPos = char.HumanoidRootPart.Position
             local head = char:FindFirstChild("Head")
             local headPos = head and head.Position or myPos
-            local playersToCheck = {}
-            for _, other in ipairs(Players:GetPlayers()) do
-                if other ~= player and isEnemy(other) and other.Character then
-                    local enemyCharacter = other.Character
-                    local humanoid = enemyCharacter:FindFirstChildOfClass("Humanoid")
-                    if humanoid and humanoid.Health > 0 then
-                        local root = enemyCharacter:FindFirstChild("HumanoidRootPart")
-                        playersToCheck[#playersToCheck + 1] = {
-                            Character = enemyCharacter,
-                            Distance = root and (root.Position - myPos).Magnitude or math.huge
-                        }
-                    end
-                end
-            end
-            table.sort(playersToCheck, function(a, b) return a.Distance < b.Distance end)
-            local raycastsRemaining = 192
-            local function checkPart(part)
-                if not part or not part:IsA("BasePart") then return end
-                local dist = (part.Position - myPos).Magnitude
-                if dist >= shortestDistance then return end
-                local halfHeight = part.Size.Y / 2.1
-                local cframe = part.CFrame
-                local function visible(point)
-                    if raycastsRemaining <= 0 then return false end
-                    raycastsRemaining -= 1
-                    return not workspace:Raycast(headPos, point - headPos, params)
-                end
-                if visible(part.Position)
-                    or visible(cframe * Vector3.new(0, halfHeight, 0))
-                    or visible(cframe * Vector3.new(0, -halfHeight, 0)) then
-                    shortestDistance = dist
-                    closestTargetPart = part
-                end
-            end
-            for _, candidate in ipairs(playersToCheck) do
-                if raycastsRemaining <= 0 then break end
-                local enemyCharacter = candidate.Character
-                if enemyCharacter.Parent then
-                    params.FilterDescendantsInstances = {char, enemyCharacter}
-                    if autoShootAgresivoEnabled or autoShootTargetPart == "Cuerpo Completo" then
-                        for _, part in ipairs(enemyCharacter:GetChildren()) do
-                            if raycastsRemaining <= 0 then break end
-                            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                                checkPart(part)
+            if autoShootAgresivoEnabled then
+                for _, p in pairs(Players:GetPlayers()) do
+                    if p ~= player and isEnemy(p) and p.Character then
+                        local enemyHum = p.Character:FindFirstChild("Humanoid")
+                        if enemyHum and enemyHum.Health > 0 then
+                            params.FilterDescendantsInstances = { char, p.Character }
+                            local function ProcesarParte(part)
+                                local dist = (part.Position - myPos).Magnitude
+                                if dist < shortestDistance then
+                                    local size = part.Size
+                                    local offsets = { Vector3.new(0, 0, 0), Vector3.new(0, size.Y / 2.1, 0), Vector3.new(0, -size.Y / 2.1, 0) }
+                                    local isVisible = false
+                                    for _, offset in ipairs(offsets) do
+                                        if not workspace:Raycast(headPos, (part.CFrame * offset) - headPos, params) then isVisible = true break end
+                                    end
+                                    if isVisible then shortestDistance = dist closestTargetPart = part end
+                                end
+                            end
+                            for _, part in ipairs(p.Character:GetChildren()) do
+                                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then ProcesarParte(part) end
                             end
                         end
-                    elseif autoShootTargetPart == "Cabeza" then
-                        checkPart(enemyCharacter:FindFirstChild("Head"))
-                    elseif autoShootTargetPart == "Torso" then
-                        for _, partName in ipairs({"UpperTorso", "Torso", "HumanoidRootPart"}) do
-                            if raycastsRemaining <= 0 then break end
-                            checkPart(enemyCharacter:FindFirstChild(partName))
+                    end
+                end
+            else
+                local playersToCheck = {}
+                for _, other in ipairs(Players:GetPlayers()) do
+                    if other ~= player and isEnemy(other) and other.Character then
+                        local enemyCharacter = other.Character
+                        local humanoid = enemyCharacter:FindFirstChildOfClass("Humanoid")
+                        if humanoid and humanoid.Health > 0 then
+                            local root = enemyCharacter:FindFirstChild("HumanoidRootPart")
+                            playersToCheck[#playersToCheck + 1] = {
+                                Character = enemyCharacter,
+                                Distance = root and (root.Position - myPos).Magnitude or math.huge
+                            }
+                        end
+                    end
+                end
+                table.sort(playersToCheck, function(a, b) return a.Distance < b.Distance end)
+                local raycastsRemaining = 192
+                local function checkPart(part)
+                    if not part or not part:IsA("BasePart") then return end
+                    local dist = (part.Position - myPos).Magnitude
+                    if dist >= shortestDistance then return end
+                    local halfHeight = part.Size.Y / 2.1
+                    local cframe = part.CFrame
+                    local function visible(point)
+                        if raycastsRemaining <= 0 then return false end
+                        raycastsRemaining -= 1
+                        return not workspace:Raycast(headPos, point - headPos, params)
+                    end
+                    if visible(part.Position)
+                        or visible(cframe * Vector3.new(0, halfHeight, 0))
+                        or visible(cframe * Vector3.new(0, -halfHeight, 0)) then
+                        shortestDistance = dist
+                        closestTargetPart = part
+                    end
+                end
+                for _, candidate in ipairs(playersToCheck) do
+                    if raycastsRemaining <= 0 then break end
+                    local enemyCharacter = candidate.Character
+                    if enemyCharacter.Parent then
+                        params.FilterDescendantsInstances = {char, enemyCharacter}
+                        if autoShootTargetPart == "Cuerpo Completo" then
+                            for _, part in ipairs(enemyCharacter:GetChildren()) do
+                                if raycastsRemaining <= 0 then break end
+                                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                                    checkPart(part)
+                                end
+                            end
+                        elseif autoShootTargetPart == "Cabeza" then
+                            checkPart(enemyCharacter:FindFirstChild("Head"))
+                        elseif autoShootTargetPart == "Torso" then
+                            for _, partName in ipairs({"UpperTorso", "Torso", "HumanoidRootPart"}) do
+                                if raycastsRemaining <= 0 then break end
+                                checkPart(enemyCharacter:FindFirstChild(partName))
+                            end
                         end
                     end
                 end
@@ -2581,6 +2617,7 @@ nexvyrUpdateTargetWorkers = function()
     if silentAimManualEnabled or silentAimFovEnabled then nexvyrStartSilentAimWorker() end
     if equipGunEnabled then nexvyrStartEquipWorker() end
 end
+end
 
 Tabs.KillAll:Section({ Title = "Kill All", Icon = "solar:danger-triangle-bold" })
 
@@ -2656,6 +2693,7 @@ UIElements.TogInvisible = Tabs.Invisible:Toggle({
     end
 })
 
+do
 local nexvyrInvisibleConnection
 nexvyrSetInvisibleWorker = function(state)
     if nexvyrInvisibleConnection then
@@ -2685,6 +2723,7 @@ nexvyrSetInvisibleWorker = function(state)
         end
     end)
 end
+end
 
 player.CharacterAdded:Connect(function(character)
     if InvisibilityActive then
@@ -2695,6 +2734,10 @@ end)
 
 Tabs.Tramposo:Section({ Title = "Tramposo", Icon = "solar:bolt-bold" })
 
+local SPEED = 28.7
+local JUMP_POWER = 45
+
+do
 local remote = ReplicatedStorage:WaitForChild("MovementState", 3)
 local function notify(kind, on)
     if remote then
@@ -2702,8 +2745,6 @@ local function notify(kind, on)
     end
 end
 
-local SPEED = 28.7
-local JUMP_POWER = 45
 local SMOOTH = 14
 
 local speedConn, jumpConn, requestConn
@@ -2798,6 +2839,7 @@ UIElements.SliJumpPower = Tabs.Tramposo:Slider({
     Value = { Min = 1, Max = 100, Default = 45 },
     Callback = function(v) JUMP_POWER = v end
 })
+end
 
 Tabs.RachaFarm:Section({ Title = "Auto Teleport Main/Alt", Icon = "solar:map-arrow-square-bold" })
 
@@ -3259,10 +3301,39 @@ Tabs.Animaciones:Button({
 
 end
 
+local KillSoundVolume = 1
+
+local KillSoundPlayer = Instance.new("Sound")
+KillSoundPlayer.Name = "NexvyrKillSound"
+KillSoundPlayer.Volume = 1
+KillSoundPlayer.Looped = false
+KillSoundPlayer.Parent = SoundService
+
+local ShootSoundPlayer = Instance.new("Sound")
+ShootSoundPlayer.Name = "NexvyrShootSound"
+ShootSoundPlayer.Volume = 1
+ShootSoundPlayer.Looped = false
+ShootSoundPlayer.Parent = SoundService
+
+local ReloadSoundPlayer = Instance.new("Sound")
+ReloadSoundPlayer.Name = "NexvyrReloadSound"
+ReloadSoundPlayer.Volume = 1
+ReloadSoundPlayer.Looped = false
+ReloadSoundPlayer.Parent = SoundService
+
+do
+local function dmvsDisconnectConnectionList(list)
+    if not list then return end
+    for i = #list, 1, -1 do
+        local connection = list[i]
+        list[i] = nil
+        if connection and connection.Connected then connection:Disconnect() end
+    end
+end
+
 local KillSoundEnabled = false
 local RecargaDisparoEnabled = false
 local SelectedKillSound = "Onichaaan"
-local KillSoundVolume = 1
 
 local KillSounds = {
     { Name = "Onichaaan", Id = "114361503583259" },
@@ -3281,12 +3352,6 @@ local KillSounds = {
     { Name = "ñyaa >//~//<", Id = "78798011197804" },
 }
 
-local KillSoundPlayer = Instance.new("Sound")
-KillSoundPlayer.Name = "NexvyrKillSound"
-KillSoundPlayer.Volume = 1
-KillSoundPlayer.Looped = false
-KillSoundPlayer.Parent = SoundService
-
 local ShootReloadOptions = {
     ["Revolver + Recarga"] = { Shoot = "680140087", Reload = "138084889" },
     ["Magia de Anime"] = { Shoot = "109296938403067", Reload = nil },
@@ -3298,18 +3363,6 @@ local SHOOT_SOUND_MAX_DURATION = 1.5
 local shootSoundToken = 0
 local lastShootSoundTime = 0
 local SHOOT_SOUND_MIN_INTERVAL = 0.05
-
-local ShootSoundPlayer = Instance.new("Sound")
-ShootSoundPlayer.Name = "NexvyrShootSound"
-ShootSoundPlayer.Volume = 1
-ShootSoundPlayer.Looped = false
-ShootSoundPlayer.Parent = SoundService
-
-local ReloadSoundPlayer = Instance.new("Sound")
-ReloadSoundPlayer.Name = "NexvyrReloadSound"
-ReloadSoundPlayer.Volume = 1
-ReloadSoundPlayer.Looped = false
-ReloadSoundPlayer.Parent = SoundService
 
 local function PlayShootSound()
     if not RecargaDisparoEnabled then return end
@@ -3673,6 +3726,7 @@ UIElements.SliKillSoundVolume = Tabs.Sonidos:Slider({
         ReloadSoundPlayer.Volume = v
     end
 })
+end
 
 do
 local MusicPlayer = Instance.new("Sound")
@@ -3782,6 +3836,9 @@ local Backgrounds = {
 
 local SelectedFondo = Backgrounds[1]
 local SelectedTheme = "Dark"
+local ApplySelectedBackground
+
+do
 local FondoNames = {}
 for _, fondo in ipairs(Backgrounds) do table.insert(FondoNames, fondo.Name) end
 
@@ -3826,7 +3883,7 @@ local function FixBackgroundLayer(Background)
     end
 end
 
-local function ApplySelectedBackground()
+function ApplySelectedBackground()
     local Background = FindBackground()
     if Background then
         Background.Image = SelectedFondo.Reference
@@ -3855,7 +3912,13 @@ UIElements.DropTema = Tabs.Fondos:Dropdown({
         pcall(function() WindUI:SetTheme(Value) end)
     end
 })
+end
 
+local KorbloxEnabled = false
+local HeadlessEnabled = false
+local applyKorblox, removeKorblox, setHeadless
+
+do
 local KORBLOX_ASSETS = {
     ["Right Leg"] = {
         id = "rbxassetid://139607718", targetBodyPart = "RightUpperLeg",
@@ -3865,7 +3928,6 @@ local KORBLOX_ASSETS = {
     }
 }
 
-local KorbloxEnabled = false
 local korbloxSavedTransparency = {}
 
 local function attachKorbloxMesh(itemName, config)
@@ -3907,7 +3969,7 @@ local function attachKorbloxMesh(itemName, config)
     return true
 end
 
-local function applyKorblox()
+function applyKorblox()
     if not KorbloxEnabled then return end
     local config = KORBLOX_ASSETS["Right Leg"]
     local ok = attachKorbloxMesh("Right Leg", config)
@@ -3917,7 +3979,7 @@ local function applyKorblox()
     end
 end
 
-local function removeKorblox()
+function removeKorblox()
     local character = player.Character
     if not character then return end
     local assetName = "Korblox_RightLeg"
@@ -3931,7 +3993,6 @@ local function removeKorblox()
 end
 
 local HEADLESS_ASSET_ID = 134082579
-local HeadlessEnabled = false
 local insertedHeadlessAccessory = nil
 
 local function setHeadlessTransparency(enabled)
@@ -3945,7 +4006,7 @@ local function setHeadlessTransparency(enabled)
     end
 end
 
-local function setHeadless(enabled)
+function setHeadless(enabled)
     local character = player.Character
     if not character then return end
     if enabled then
@@ -4025,9 +4086,13 @@ UIElements.TogKorblox = Tabs.Items:Toggle({
         if v then applyKorblox() else removeKorblox() end
     end
 })
+end
 
 Tabs.Identidad:Section({ Title = "identidad falsa", Icon = "solar:user-id-bold" })
 
+local updateSystem
+
+do
 local function safeReplace(str, find, replace)
     local safeFind = find:gsub("[%-%^%$%(%)%%%.%[%]%*%+%?]", "%%%1")
     return (str:gsub(safeFind, replace))
@@ -4084,7 +4149,7 @@ local function processText(v, myName, myDisp)
     end
 end
 
-local function updateSystem()
+function updateSystem()
     local myName = player.Name
     local myDisp = player.DisplayName
     task.spawn(function()
@@ -4189,6 +4254,7 @@ player.CharacterAdded:Connect(function()
         updateSystem()
     end
 end)
+end
 
 do
 local configFolder = "NexvyrHub_Configs_WindUI"
@@ -4282,6 +4348,7 @@ Tabs.Guardado:Button({
                 ["Silent Aim (Manual)"] = silentAimManualEnabled,
                 ["Silent Aim (FOV)"] = silentAimFovEnabled,
                 ["Mostrar Círculo FOV"] = fovVisiblePreference,
+                ["Team Check"] = teamCheckEnabled,
                 ["ESP Jugadores"] = espEnabled,
                 ["ESP Glow"] = espSettings.Glow,
                 ["Kill All"] = KillAllEnabled,
@@ -4326,6 +4393,7 @@ Tabs.Guardado:Button({
                     if decoded.Toggles["Silent Aim (Manual)"] ~= nil then silentAimManualEnabled = decoded.Toggles["Silent Aim (Manual)"] secureLoadToggle(UIElements.TogSilentAimManual, silentAimManualEnabled) end
                     if decoded.Toggles["Silent Aim (FOV)"] ~= nil then silentAimFovEnabled = decoded.Toggles["Silent Aim (FOV)"] secureLoadToggle(UIElements.TogSilentAimFOV, silentAimFovEnabled) end
                     if decoded.Toggles["Mostrar Círculo FOV"] ~= nil then fovVisiblePreference = decoded.Toggles["Mostrar Círculo FOV"] secureLoadToggle(UIElements.TogShowFOV, fovVisiblePreference) end
+                    if decoded.Toggles["Team Check"] ~= nil then teamCheckEnabled = decoded.Toggles["Team Check"] end
                     if decoded.Toggles["ESP Jugadores"] ~= nil then espEnabled = decoded.Toggles["ESP Jugadores"] secureLoadToggle(UIElements.TogEsp, espEnabled) end
                     if decoded.Toggles["ESP Glow"] ~= nil then espSettings.Glow = decoded.Toggles["ESP Glow"] secureLoadToggle(UIElements.TogEspGl, espSettings.Glow) end
                     if decoded.Toggles["Kill All"] ~= nil then
