@@ -144,7 +144,6 @@ local Tabs = {
     Animaciones = ConfigSection:Tab({ Title = "Animaciones", Icon = "solar:smile-circle-bold" }),
     Sonidos = ConfigSection:Tab({ Title = "Sonidos", Icon = "solar:speaker-bold" }),
     Music = ConfigSection:Tab({ Title = "Música", Icon = "solar:music-note-2-bold" }),
-    Fondos = ConfigSection:Tab({ Title = "Fondos", Icon = "solar:gallery-bold" }),
     Items = ConfigSection:Tab({ Title = "Items", Icon = "solar:crown-star-bold" }),
     Guardado = ConfigSection:Tab({ Title = "Guardado", Icon = "solar:diskette-bold" }),
     Identidad = ConfigSection:Tab({ Title = "Identidad", Icon = "solar:user-id-bold" })
@@ -1380,8 +1379,8 @@ end
 
 do
 local KILLALL_MOVE_SPEED               = 39.9
-local KILLALL_APPROACH_DISTANCE        = 2.5
-local KILLALL_APPROACH_TOLERANCE       = 0.35
+local KILLALL_APPROACH_DISTANCE        = 1.2
+local KILLALL_APPROACH_TOLERANCE       = 0.6
 local KILLALL_SWING_INTERVAL           = 0.5
 local KILLALL_SAFE_GROUND_THRESHOLD    = 3
 local KILLALL_STICK_MAX_TIME           = 2.5
@@ -1390,19 +1389,23 @@ local KILLALL_VOID_PROTECTION          = 15
 local KILLALL_HEALTH_STALL_TIME        = 1.5
 local KILLALL_TARGET_GRACE_TIME        = 1.2
 local KILLALL_PITCH_DEGREES            = 90
-local KILLALL_HEIGHT_OFFSET            = 1.9
-local KILLALL_HIDE_DEPTH               = 4
+local KILLALL_HEIGHT_OFFSET            = 2.5
+local KILLALL_HIDE_DEPTH               = 6
 local KILLALL_HIDE_DURATION            = 0.5
-local KILLALL_KNIFE_RANGE_Y            = 4.5
-local KILLALL_JITTER_AMPLITUDE         = 0.8
-local KILLALL_JITTER_SWITCH_MIN        = 0.05
-local KILLALL_JITTER_SWITCH_MAX        = 0.12
+local KILLALL_KNIFE_RANGE_Y            = 7.5
+local KILLALL_JITTER_AMPLITUDE         = 0.3
+local KILLALL_JITTER_SWITCH_MIN        = 0.08
+local KILLALL_JITTER_SWITCH_MAX        = 0.16
 local KILLALL_JITTER_LERP_SPEED        = 25
-local KILLALL_UNDERGROUND_DEPTH        = 5
+local KILLALL_UNDERGROUND_DEPTH        = 6
 local KILLALL_UNDERGROUND_TOLERANCE    = 1.5
 local KILLALL_TRIGGER_RADIUS           = 6.0
+local KILLALL_TRIGGER_TIMEOUT          = 0.6
+local KILLALL_FLOOR_REFRESH            = 0.25
 local KILLALL_VALIDATION_TOLERANCE     = 1.0
 local KILLALL_VALIDATION_FRAMES        = 3
+local KILLALL_PREDICT_TIME             = 0.06
+local KILLALL_STICK_LERP_SPEED         = 40
 
 local KillAll = {}
 KillAll.__index = KillAll
@@ -1414,6 +1417,7 @@ function KillAll.new()
         lastEnemyHealth = nil, lastHealthChangeTime = 0, lastTargetSeenTime = 0,
         currentTarget = nil, lockedTargetPlayer = nil, lastStickTarget = nil, lastStickTargetHum = nil,
         hiding = false, hidingUntil = 0, targetFloor = nil, targetFloorY = nil, lastFloorTarget = nil,
+        floorCheckTime = 0, triggerStart = nil,
         inKnifeRangeNow = false, forceDescent = false, jitterSide = 1, jitterCurrent = 0,
         jitterNextSwitch = 0, lastSetCFrame = nil, validFrames = 0, killActivated = false,
     }, KillAll)
@@ -1458,12 +1462,17 @@ end
 
 function KillAll:GetPlatformFloorY(targetRoot)
     if not targetRoot then return nil end
-    if self.lastFloorTarget == targetRoot and self.targetFloorY then return self.targetFloorY end
+    local now = os.clock()
+    if self.lastFloorTarget == targetRoot and self.targetFloorY
+        and (now - (self.floorCheckTime or 0)) < KILLALL_FLOOR_REFRESH then
+        return self.targetFloorY
+    end
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = { player.Character, targetRoot.Parent }
     local origin = targetRoot.Position + Vector3.new(0, 3, 0)
     local result = workspace:Raycast(origin, Vector3.new(0, -500, 0), params)
+    self.floorCheckTime = now
     if result then
         self.targetFloorY = result.Position.Y
         self.lastFloorTarget = targetRoot
@@ -1534,6 +1543,7 @@ function KillAll:ResetState()
     self.lastSetCFrame = nil
     self.validFrames = 0
     self.killActivated = false
+    self.triggerStart = nil
     self:RestoreCollisions()
     local hum = self:GetHumanoid(player)
     if hum and hum.PlatformStand then pcall(function() hum.PlatformStand = false end) end
@@ -1562,7 +1572,13 @@ end
 
 function KillAll:IsFallingIntoVoid(myRoot)
     if not self.safePosition or not myRoot then return false end
-    return myRoot.Position.Y < (self.safePosition.Y - KILLALL_VOID_PROTECTION)
+    local limit = self.safePosition.Y - KILLALL_VOID_PROTECTION
+    -- si el enemigo esta en un nivel mas bajo, el limite baja con el piso del enemigo
+    -- (antes te devolvia a la posicion segura y por eso te frenaba antes de llegar)
+    if self.targetFloorY and self.lastFloorTarget and self.lastFloorTarget.Parent then
+        limit = math.min(limit, self.targetFloorY - KILLALL_UNDERGROUND_DEPTH - KILLALL_VOID_PROTECTION)
+    end
+    return myRoot.Position.Y < limit
 end
 
 function KillAll:HideBelowMap()
@@ -1668,6 +1684,8 @@ function KillAll:ApproachTarget(myRoot, targetRoot, dt)
     local hDist = deltaXZ.Magnitude
     if hDist <= KILLALL_TRIGGER_RADIUS then
         if not self.sticking then
+            local nowT = os.clock()
+            if not self.triggerStart then self.triggerStart = nowT end
             local lookTarget = Vector3.new(targetPos.X, myPos.Y, targetPos.Z)
             local targetCF = CFrame.lookAt(myPos, lookTarget)
             self.lastSetCFrame = targetCF
@@ -1676,7 +1694,12 @@ function KillAll:ApproachTarget(myRoot, targetRoot, dt)
                 myRoot.AssemblyLinearVelocity = Vector3.zero
                 myRoot.AssemblyAngularVelocity = Vector3.zero
             end)
-            if self:CheckServerValidation(myRoot) then
+            -- si el servidor no valida a tiempo, ya no te quedas congelado: pasa a pegarse igual
+            local validated = self:CheckServerValidation(myRoot)
+            if validated or (nowT - self.triggerStart) >= KILLALL_TRIGGER_TIMEOUT then
+                self.killActivated = true
+                self.swingAccumulator = KILLALL_SWING_INTERVAL
+                self.triggerStart = nil
                 self.sticking = true
                 self.stickingStartTime = os.clock()
                 self.lastStickTarget = targetRoot
@@ -1693,6 +1716,7 @@ function KillAll:ApproachTarget(myRoot, targetRoot, dt)
     end
     self.lastSetCFrame = nil
     self.validFrames = 0
+    self.triggerStart = nil
     local dir = deltaXZ.Unit
     local perp = Vector3.new(-dir.Z, 0, dir.X)
     self:UpdateJitter(dt)
@@ -1730,7 +1754,8 @@ function KillAll:CanStickToTarget(myRoot, targetRoot)
     return true
 end
 
-function KillAll:StickToTarget(myRoot, targetRoot)
+function KillAll:StickToTarget(myRoot, targetRoot, dt)
+    dt = dt or 0.016
     local targetPos = targetRoot.Position
     local targetHum = targetRoot.Parent and targetRoot.Parent:FindFirstChildOfClass("Humanoid")
     local onGround  = targetHum and targetHum.FloorMaterial ~= Enum.Material.Air
@@ -1740,10 +1765,15 @@ function KillAll:StickToTarget(myRoot, targetRoot)
     end
     if onGround or not self.targetFloor then self.targetFloor = self:GetFloorY(targetRoot) end
     local myPos = myRoot.Position
-    local dir = Vector3.new(myPos.X - targetPos.X, 0, myPos.Z - targetPos.Z)
-    if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, 1) else dir = dir.Unit end
-    local x = targetPos.X + dir.X * KILLALL_APPROACH_DISTANCE
-    local z = targetPos.Z + dir.Z * KILLALL_APPROACH_DISTANCE
+    -- posicion estable: justo debajo del enemigo, ligeramente detras de el
+    local vel = targetRoot.AssemblyLinearVelocity
+    local predX = targetPos.X + vel.X * KILLALL_PREDICT_TIME
+    local predZ = targetPos.Z + vel.Z * KILLALL_PREDICT_TIME
+    local look = targetRoot.CFrame.LookVector
+    local back = Vector3.new(-look.X, 0, -look.Z)
+    if back.Magnitude < 0.05 then back = Vector3.new(0, 0, 1) else back = back.Unit end
+    local x = predX + back.X * KILLALL_APPROACH_DISTANCE
+    local z = predZ + back.Z * KILLALL_APPROACH_DISTANCE
     local inRange = self:IsInKnifeRange(myRoot, targetRoot)
     local y
     if inRange and not self.forceDescent then y = myPos.Y
@@ -1751,8 +1781,13 @@ function KillAll:StickToTarget(myRoot, targetRoot)
         y = self.targetFloor - KILLALL_HEIGHT_OFFSET
         if inRange then self.forceDescent = false end
     end
+    -- nunca quedar por encima del piso del enemigo menos el offset (evita quedar expuesto)
+    local maxY = self.targetFloor - KILLALL_HEIGHT_OFFSET
+    if y > maxY then y = maxY end
+    local alpha = math.clamp(dt * KILLALL_STICK_LERP_SPEED, 0, 1)
+    local newPos = myPos:Lerp(Vector3.new(x, y, z), alpha)
     pcall(function()
-        myRoot.CFrame = CFrame.new(x, y, z) * CFrame.Angles(math.rad(KILLALL_PITCH_DEGREES), 0, 0)
+        myRoot.CFrame = CFrame.new(newPos) * CFrame.Angles(math.rad(KILLALL_PITCH_DEGREES), 0, 0)
         myRoot.AssemblyLinearVelocity  = Vector3.zero
         myRoot.AssemblyAngularVelocity = Vector3.zero
     end)
@@ -1809,6 +1844,7 @@ function KillAll:Update(dt)
             self.killActivated        = false
             self.validFrames          = 0
             self.lastSetCFrame        = nil
+            self.triggerStart         = nil
             return
         end
     end
@@ -1828,6 +1864,8 @@ function KillAll:Update(dt)
         self.currentTarget = nil
         self.lockedTargetPlayer = nil
         self.lastStickTarget = nil
+        self.lastFloorTarget = nil
+        self.targetFloorY = nil
         local hum = self:GetHumanoid(player)
         if hum then pcall(function() hum.PlatformStand = false end) end
         return
@@ -1893,9 +1931,10 @@ function KillAll:Update(dt)
             self.killActivated        = false
             self.validFrames          = 0
             self.lastSetCFrame        = nil
+            self.triggerStart         = nil
             if lostTarget then self.lastStickTarget = nil end
         else
-            self:StickToTarget(myRoot, target)
+            self:StickToTarget(myRoot, target, dt or 0)
             return
         end
     end
@@ -1920,6 +1959,8 @@ function KillAll:Start()
     self.targetFloor           = nil
     self.targetFloorY          = nil
     self.lastFloorTarget       = nil
+    self.floorCheckTime        = 0
+    self.triggerStart          = nil
     self.inKnifeRangeNow       = false
     self.forceDescent          = false
     self.jitterSide = 1
@@ -1964,6 +2005,8 @@ function KillAll:Start()
         self.targetFloor           = nil
         self.targetFloorY          = nil
         self.lastFloorTarget       = nil
+        self.floorCheckTime        = 0
+        self.triggerStart          = nil
         self.inKnifeRangeNow       = false
         self.forceDescent          = false
         self.jitterSide = 1
@@ -3322,6 +3365,8 @@ ReloadSoundPlayer.Looped = false
 ReloadSoundPlayer.Parent = SoundService
 
 do
+local ContentProvider = game:GetService("ContentProvider")
+
 local function dmvsDisconnectConnectionList(list)
     if not list then return end
     for i = #list, 1, -1 do
@@ -3350,6 +3395,7 @@ local KillSounds = {
     { Name = "SEMPAI >.<", Id = "115498703521334" },
     { Name = "Ahhh:3", Id = "83559496188823" },
     { Name = "ñyaa >//~//<", Id = "78798011197804" },
+    { Name = "Headshot", Id = "130456049552264" },
 }
 
 local ShootReloadOptions = {
@@ -3480,20 +3526,44 @@ local function GetKillSoundIdByName(soundName)
     return KillSounds[1].Id
 end
 
+-- Precarga el sonido elegido para que no haya retraso al reproducirlo
+local function PreloadKillSound()
+    task.spawn(function()
+        pcall(function()
+            local id = "rbxassetid://" .. GetKillSoundIdByName(SelectedKillSound)
+            if KillSoundPlayer.SoundId ~= id then KillSoundPlayer.SoundId = id end
+            ContentProvider:PreloadAsync({ KillSoundPlayer })
+        end)
+    end)
+end
+
 local function PlayKillSound()
     if not KillSoundEnabled then return end
+    local id = "rbxassetid://" .. GetKillSoundIdByName(SelectedKillSound)
     KillSoundPlayer:Stop()
-    KillSoundPlayer.SoundId = "rbxassetid://" .. GetKillSoundIdByName(SelectedKillSound)
+    if KillSoundPlayer.SoundId ~= id then KillSoundPlayer.SoundId = id end
     KillSoundPlayer.Volume = KillSoundVolume
+    KillSoundPlayer.TimePosition = 0
     KillSoundPlayer:Play()
 end
 
 local lastKillSoundTime = 0
+local lastPrimaryKillTime = 0
 local KILL_SOUND_COOLDOWN = 0.08
-local function TryPlayKillSound()
+local KILL_SOUND_PRIMARY_COOLDOWN = 0.3
+local KILL_SOUND_FALLBACK_WINDOW = 4
+-- primary = evento inmediato del juego (RE/Combat/Killed). Los demas metodos (stats, Died)
+-- llegan tarde, asi que solo suenan si no sono ya uno reciente (evita sonido doble).
+local function TryPlayKillSound(primary)
     if not KillSoundEnabled then return end
     local now = tick()
-    if now - lastKillSoundTime < KILL_SOUND_COOLDOWN then return end
+    if primary then
+        if now - lastKillSoundTime < KILL_SOUND_PRIMARY_COOLDOWN then return end
+        lastPrimaryKillTime = now
+    else
+        if now - lastKillSoundTime < KILL_SOUND_COOLDOWN then return end
+        if now - lastPrimaryKillTime < KILL_SOUND_FALLBACK_WINDOW then return end
+    end
     lastKillSoundTime = now
     PlayKillSound()
 end
@@ -3503,6 +3573,7 @@ local nexvyrKillWatchedStats = setmetatable({}, {__mode = "k"})
 local nexvyrKillWatchedCharacters = setmetatable({}, {__mode = "k"})
 local nexvyrKillWatchedPlayers = setmetatable({}, {__mode = "k"})
 local nexvyrKillWatchedContainers = setmetatable({}, {__mode = "k"})
+local nexvyrKillRemoteSession = 0
 local function nexvyrTrackKill(connection)
     nexvyrKillConnections[#nexvyrKillConnections + 1] = connection
     return connection
@@ -3577,13 +3648,37 @@ local function HookKillPlayer(other)
     end))
 end
 
+-- Evento inmediato del juego: avisa al instante cuando alguien mata a alguien
+local function nexvyrHookKilledRemote()
+    nexvyrKillRemoteSession += 1
+    local session = nexvyrKillRemoteSession
+    task.spawn(function()
+        local tries = 0
+        while KillSoundEnabled and session == nexvyrKillRemoteSession and tries < 30 do
+            local packages = ReplicatedStorage:FindFirstChild("Packages")
+            local networking = packages and packages:FindFirstChild("Networking")
+            local remote = networking and networking:FindFirstChild("RE/Combat/Killed")
+            if remote and remote:IsA("RemoteEvent") then
+                nexvyrTrackKill(remote.OnClientEvent:Connect(function(killer)
+                    if killer == player then TryPlayKillSound(true) end
+                end))
+                return
+            end
+            tries += 1
+            task.wait(1)
+        end
+    end)
+end
+
 local function nexvyrStartKillWatchers()
     if not KillSoundEnabled then return end
+    nexvyrHookKilledRemote()
     nexvyrWatchLocalKillStats()
     for _, other in ipairs(Players:GetPlayers()) do HookKillPlayer(other) end
     nexvyrTrackKill(Players.PlayerAdded:Connect(HookKillPlayer))
 end
 local function nexvyrStopKillWatchers()
+    nexvyrKillRemoteSession += 1
     dmvsDisconnectConnectionList(nexvyrKillConnections)
     table.clear(nexvyrKillWatchedStats)
     table.clear(nexvyrKillWatchedCharacters)
@@ -3668,7 +3763,9 @@ Tabs.Sonidos:Toggle({
     Callback = function(v)
         if KillSoundEnabled == v then return end
         KillSoundEnabled = v
-        if v then nexvyrStartKillWatchers()
+        if v then
+            PreloadKillSound()
+            nexvyrStartKillWatchers()
         else
             nexvyrStopKillWatchers()
             KillSoundPlayer:Stop()
@@ -3683,7 +3780,10 @@ Tabs.Sonidos:Dropdown({
     Title = "Sonido de muerte",
     Values = KillSoundDropdownValues,
     Value = "Onichaaan",
-    Callback = function(selected) SelectedKillSound = selected end
+    Callback = function(selected)
+        SelectedKillSound = selected
+        if KillSoundEnabled then PreloadKillSound() end
+    end
 })
 
 Tabs.Sonidos:Section({ Title = "Disparo y Recarga", Icon = "solar:target-bold" })
@@ -3820,98 +3920,6 @@ Tabs.Music:Button({ Title = "Reproducir", Icon = "solar:play-circle-bold", Varia
 Tabs.Music:Button({ Title = "Pausar", Icon = "solar:pause-circle-bold", Variant = "Secondary", Callback = function() PauseSong() end })
 Tabs.Music:Button({ Title = "Detener", Icon = "solar:close-circle-bold", Variant = "Danger", Callback = function() StopSong() end })
 
-end
-
-local Backgrounds = {
-    { Name = "Fondo 0", ID = "9405835683", Reference = "rbxthumb://type=Asset&id=9405835683&w=420&h=420" },
-    { Name = "Fondo 1", ID = "108657978883224", Reference = "rbxthumb://type=Asset&id=108657978883224&w=420&h=420" },
-    { Name = "Fondo 2", ID = "11146353806", Reference = "rbxthumb://type=Asset&id=11146353806&w=420&h=420" },
-    { Name = "Fondo 3", ID = "12687580616", Reference = "rbxthumb://type=Asset&id=12687580616&w=420&h=420" },
-    { Name = "Fondo 4", ID = "17104722", Reference = "rbxthumb://type=Asset&id=17104722&w=420&h=420" },
-    { Name = "Fondo 5", ID = "1941010929", Reference = "rbxthumb://type=Asset&id=1941010929&w=420&h=420" },
-    { Name = "Fondo 6", ID = "134245569", Reference = "rbxthumb://type=Asset&id=134245569&w=420&h=420" },
-    { Name = "Fondo 7", ID = "14653905878", Reference = "rbxthumb://type=Asset&id=14653905878&w=420&h=420" },
-    { Name = "Fondo 8", ID = "14397445471", Reference = "rbxthumb://type=Asset&id=14397445471&w=420&h=420" }
-}
-
-local SelectedFondo = Backgrounds[1]
-local SelectedTheme = "Dark"
-local ApplySelectedBackground
-
-do
-local FondoNames = {}
-for _, fondo in ipairs(Backgrounds) do table.insert(FondoNames, fondo.Name) end
-
-UIElements.DropFondo = Tabs.Fondos:Dropdown({
-    Title = "Seleccionar fondo",
-    Values = FondoNames,
-    Value = SelectedFondo.Name,
-    Callback = function(Value)
-        for _, fondo in ipairs(Backgrounds) do
-            if fondo.Name == Value then SelectedFondo = fondo; break end
-        end
-    end
-})
-
-local function FindBackground()
-    local possibleRoots = { game:GetService("CoreGui"), game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui") }
-    for _, root in ipairs(possibleRoots) do
-        if root then
-            for _, obj in ipairs(root:GetDescendants()) do
-                if obj:IsA("ImageLabel") then
-                    local image = obj.Image
-                    if image and (image:find("9405835683") or image:find("108657978883224") or image:find("11146353806") or image:find("12687580616") or image:find("17104722") or image:find("1941010929") or image:find("134245569") or image:find("14653905878") or image:find("14397445471")) then
-                        return obj
-                    end
-                end
-            end
-        end
-    end
-    return nil
-end
-
-local function FixBackgroundLayer(Background)
-    Background.ZIndex = 0
-    Background.Active = false
-    local Parent = Background.Parent
-    if Parent then
-        for _, obj in ipairs(Parent:GetDescendants()) do
-            if obj:IsA("GuiObject") and obj ~= Background then
-                if obj.ZIndex <= Background.ZIndex then obj.ZIndex = Background.ZIndex + 1 end
-            end
-        end
-    end
-end
-
-function ApplySelectedBackground()
-    local Background = FindBackground()
-    if Background then
-        Background.Image = SelectedFondo.Reference
-        FixBackgroundLayer(Background)
-        return true
-    end
-    return false
-end
-
-Tabs.Fondos:Button({
-    Title = "Aplicar",
-    Callback = function()
-        if not ApplySelectedBackground() then warn("No se encontró el fondo de WindUI.") end
-    end
-})
-
-Tabs.Fondos:Section({ Title = "Tema de la Interfaz", Icon = "solar:palette-bold" })
-
-UIElements.DropTema = Tabs.Fondos:Dropdown({
-    Title = "Seleccionar Tema",
-    Icon = "solar:palette-bold",
-    Values = { "Midnight", "Dark", "Red", "Indigo" },
-    Value = "Dark",
-    Callback = function(Value)
-        SelectedTheme = Value
-        pcall(function() WindUI:SetTheme(Value) end)
-    end
-})
 end
 
 local KorbloxEnabled = false
@@ -4361,7 +4369,7 @@ Tabs.Guardado:Button({
             },
             Sliders = { ["Tamaño del FOV"] = fovRadius, ["Tamaño de Hitbox"] = hitboxSize, ["Volumen Kill Sound"] = KillSoundVolume, ["Ajuste Speed"] = SPEED, ["Ajuste Salto"] = JUMP_POWER },
             Colors = { ["Color de Hitbox"] = {R = hitboxColor.R, G = hitboxColor.G, B = hitboxColor.B}, ["Color del ESP"] = {R = espColor.R, G = espColor.G, B = espColor.B} },
-            Extras = { ["Parte Silent Aim"] = silentAimTargetPart, ["Fondo"] = SelectedFondo.Name, ["Tema"] = SelectedTheme, ["Nombre Falso Texto"] = spoofNameText }
+            Extras = { ["Parte Silent Aim"] = silentAimTargetPart, ["Nombre Falso Texto"] = spoofNameText }
         }
         if writefile then
             local sEncode, encodedData = pcall(function() return HttpService:JSONEncode(configData) end)
@@ -4448,18 +4456,6 @@ Tabs.Guardado:Button({
                     if decoded.Extras["Parte Silent Aim"] then
                         silentAimTargetPart = decoded.Extras["Parte Silent Aim"]
                         if UIElements.DropSilentAimPart then pcall(function() UIElements.DropSilentAimPart:Select(silentAimTargetPart) end) end
-                    end
-                    if decoded.Extras["Fondo"] then
-                        for _, fondo in ipairs(Backgrounds) do
-                            if fondo.Name == decoded.Extras["Fondo"] then SelectedFondo = fondo break end
-                        end
-                        if UIElements.DropFondo then pcall(function() UIElements.DropFondo:Select(SelectedFondo.Name) end) end
-                        ApplySelectedBackground()
-                    end
-                    if decoded.Extras["Tema"] then
-                        SelectedTheme = decoded.Extras["Tema"]
-                        if UIElements.DropTema then pcall(function() UIElements.DropTema:Select(SelectedTheme) end) end
-                        pcall(function() WindUI:SetTheme(SelectedTheme) end)
                     end
                     if decoded.Extras["Nombre Falso Texto"] then
                         spoofNameText = decoded.Extras["Nombre Falso Texto"]
@@ -4817,6 +4813,110 @@ end
 
 do
 local TweenService = game:GetService("TweenService")
+local emoteSpamEnabled = false
+local emoteSpamSelected = nil
+local emoteSpamRunning = false
+local EMOTE_SPAM_INTERVAL = 0.2
+
+local function listarEmotes()
+    local char = player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return {} end
+    local ok, desc = pcall(function() return hum:GetAppliedDescription() end)
+    if not ok or not desc then return {} end
+    local names, seen = {}, {}
+    local okEq, equipped = pcall(function() return desc:GetEquippedEmotes() end)
+    if okEq and equipped then
+        table.sort(equipped, function(a, b) return a.Slot < b.Slot end)
+        for _, e in ipairs(equipped) do
+            if not seen[e.Name] then seen[e.Name] = true; names[#names + 1] = e.Name end
+        end
+    end
+    local okAll, all = pcall(function() return desc:GetEmotes() end)
+    if okAll and all then
+        local rest = {}
+        for name in pairs(all) do
+            if not seen[name] then rest[#rest + 1] = name end
+        end
+        table.sort(rest)
+        for _, n in ipairs(rest) do names[#names + 1] = n end
+    end
+    return names
+end
+
+-- Detiene el emote en curso: para todas las animaciones que no sean las base del
+-- personaje (Animate) ni las de las herramientas, y reinicia Animate para volver al idle.
+local function detenerEmote()
+    local char = player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    local animator = hum:FindFirstChildOfClass("Animator")
+    local animate = char:FindFirstChild("Animate")
+    local base = {}
+    if animate then
+        for _, d in ipairs(animate:GetDescendants()) do
+            if d:IsA("Animation") then base[d.AnimationId] = true end
+        end
+    end
+    local function addTool(tool)
+        for _, d in ipairs(tool:GetDescendants()) do
+            if d:IsA("Animation") then base[d.AnimationId] = true end
+        end
+    end
+    for _, child in ipairs(char:GetChildren()) do
+        if child:IsA("Tool") then addTool(child) end
+    end
+    local backpack = player:FindFirstChildOfClass("Backpack")
+    if backpack then
+        for _, child in ipairs(backpack:GetChildren()) do
+            if child:IsA("Tool") then addTool(child) end
+        end
+    end
+    if animator then
+        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+            local anim = track.Animation
+            if not (anim and base[anim.AnimationId]) then
+                pcall(function() track:Stop(0.1) end)
+            end
+        end
+    end
+    if animate and not animacionActualActiva then
+        task.spawn(function()
+            pcall(function()
+                animate.Disabled = true
+                task.wait()
+                animate.Disabled = false
+            end)
+        end)
+    end
+end
+
+local function iniciarEmoteSpam()
+    if emoteSpamRunning or not emoteSpamEnabled then return end
+    emoteSpamRunning = true
+    task.spawn(function()
+        while emoteSpamEnabled do
+            local char = player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local sel = emoteSpamSelected
+            if hum and hum.Health > 0 and sel then
+                pcall(function() hum:PlayEmote(sel.Name) end)
+            end
+            task.wait(EMOTE_SPAM_INTERVAL)
+        end
+        emoteSpamRunning = false
+    end)
+end
+
+local function setEmoteSpam(state)
+    emoteSpamEnabled = state
+    if state then
+        iniciarEmoteSpam()
+    else
+        detenerEmote()
+    end
+end
+
 
 local BTN_SIZE = 56
 local GREEN    = Color3.fromRGB(144, 238, 144)
@@ -4922,6 +5022,10 @@ local Icons = {
         e1.BackgroundColor3 = BG_OFF
         e2.BackgroundColor3 = BG_OFF
     end,
+    Emote = function(F, R)
+        F(10, 1, 10, 10, true)
+        F(5, 14, 20, 15, 7)
+    end,
 }
 
 local defs = {
@@ -4933,7 +5037,7 @@ local defs = {
 
 local buttons = {}
 
-local function createButton(def, index)
+local function createButton(def, index, parent)
     local btn = Instance.new("TextButton")
     btn.Name = def.Name
     btn.Text = ""
@@ -4943,7 +5047,7 @@ local function createButton(def, index)
     btn.BackgroundColor3 = BG_OFF
     btn.BackgroundTransparency = 0.12
     btn.Size = UDim2.fromOffset(BTN_SIZE, BTN_SIZE)
-    btn.Parent = floatGui
+    btn.Parent = parent or floatGui
 
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 16)
@@ -4967,6 +5071,9 @@ local function createButton(def, index)
     holder.Parent = btn
 
     local paints = {}
+    local onColor = def.OnColor or GREEN
+    local offColor = def.OffColor or ICON_OFF
+    local bgOn = def.BgOn or BG_ON
     local F, R = makeIconKit(holder, paints)
     Icons[def.Name](F, R)
 
@@ -4986,10 +5093,10 @@ local function createButton(def, index)
         local first = isOn == nil
         isOn = on
         local info = (instant or first) and TweenInfo.new(0) or TI
-        tween(btn, { BackgroundColor3 = on and BG_ON or BG_OFF, BackgroundTransparency = on and 0.05 or 0.12 }, info)
-        tween(stroke, { Color = on and GREEN or Color3.new(1, 1, 1), Transparency = on and 0 or 0.75, Thickness = on and 2.5 or 1.5 }, info)
+        tween(btn, { BackgroundColor3 = on and bgOn or BG_OFF, BackgroundTransparency = on and 0.05 or 0.12 }, info)
+        tween(stroke, { Color = on and onColor or Color3.new(1, 1, 1), Transparency = on and 0 or 0.75, Thickness = on and 2.5 or 1.5 }, info)
         for _, p in ipairs(paints) do
-            tween(p[1], { [p[2]] = on and GREEN or ICON_OFF }, info)
+            tween(p[1], { [p[2]] = on and onColor or offColor }, info)
         end
         if not instant and not first then
             tween(scale, { Scale = 1.14 }, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out))
@@ -5031,14 +5138,18 @@ local function createButton(def, index)
         dragging = false
         tween(scale, { Scale = 1 }, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
         if not moved then
-            local newState = not def.Get()
-            local el = UIElements[def.Ui]
-            if el then pcall(function() el:Set(newState) end) end
+            if def.OnClick then
+                def.OnClick()
+            else
+                local newState = not def.Get()
+                local el = UIElements[def.Ui]
+                if el then pcall(function() el:Set(newState) end) end
+            end
             setVisual(def.Get() == true)
         end
     end)
 
-    buttons[#buttons + 1] = {
+    return {
         Sync = function() setVisual(def.Get() == true) end,
         Reclamp = function()
             local x, y = clampPos(btn.Position.X.Offset, btn.Position.Y.Offset)
@@ -5048,10 +5159,31 @@ local function createButton(def, index)
     }
 end
 
-for i, def in ipairs(defs) do createButton(def, i) end
+for i, def in ipairs(defs) do buttons[#buttons + 1] = createButton(def, i) end
+
+local emoteGui = Instance.new("ScreenGui")
+emoteGui.Name = "NexvyrHub_EmoteButton"
+emoteGui.ResetOnSpawn = false
+emoteGui.IgnoreGuiInset = true
+emoteGui.DisplayOrder = 1000
+emoteGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+emoteGui.Enabled = false
+emoteGui.Parent = player:WaitForChild("PlayerGui")
+
+local emoteButton = createButton({
+    Name = "Emote",
+    Get = function() return emoteSpamEnabled end,
+    OnClick = function()
+        setEmoteSpam(not emoteSpamEnabled)
+    end,
+    OnColor = Color3.fromRGB(255, 70, 70),
+    OffColor = Color3.fromRGB(130, 130, 140),
+    BgOn = Color3.fromRGB(45, 18, 22),
+}, 5, emoteGui)
 
 floatGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
     for _, b in ipairs(buttons) do b.Reclamp() end
+    emoteButton.Reclamp()
 end)
 
 task.spawn(function()
@@ -5060,6 +5192,7 @@ task.spawn(function()
         if floatGui.Enabled then
             for _, b in ipairs(buttons) do b.Sync() end
         end
+        if emoteGui.Enabled then emoteButton.Sync() end
     end
 end)
 
@@ -5080,8 +5213,53 @@ Tabs.Botones:Button({
     Variant = "Secondary",
     Callback = function()
         for _, b in ipairs(buttons) do b.Home() end
+        emoteButton.Home()
     end
 })
+
+Tabs.Botones:Space()
+Tabs.Botones:Divider()
+Tabs.Botones:Space()
+Tabs.Botones:Section({ Title = "Spam de emote", Icon = "solar:smile-circle-bold" })
+
+UIElements.TogEmoteSpam = Tabs.Botones:Toggle({
+    Title = "Spam de emote (botón flotante)",
+    Value = false,
+    Callback = function(v)
+        emoteGui.Enabled = v
+        if v then emoteButton.Sync() else setEmoteSpam(false) end
+    end
+})
+
+local emoteDropdown = Tabs.Botones:Dropdown({
+    Title = "Mis emotes equipados",
+    Values = { "Ninguno" },
+    Value = "Ninguno",
+    Callback = function(Value)
+        if Value ~= "Ninguno" then emoteSpamSelected = { Kind = "equipped", Name = Value } end
+    end
+})
+
+local function refrescarEmotes()
+    local list = listarEmotes()
+    if #list == 0 then list = { "Ninguno" } end
+    pcall(function() emoteDropdown:Refresh(list) end)
+    if list[1] ~= "Ninguno" and not emoteSpamSelected then
+        emoteSpamSelected = { Kind = "equipped", Name = list[1] }
+    end
+end
+
+Tabs.Botones:Button({
+    Title = "Actualizar emotes",
+    Icon = "solar:refresh-bold",
+    Variant = "Secondary",
+    Callback = refrescarEmotes
+})
+
+task.spawn(function()
+    task.wait(1.5)
+    refrescarEmotes()
+end)
 end
 
 do
