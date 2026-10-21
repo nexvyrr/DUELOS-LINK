@@ -750,6 +750,7 @@ local Tabs = {
     ExtrasScripts = ExtrasScriptsSection:Tab({ Title = "Extras scripts", Icon = "solar:code-square-bold" }),
     Graficos = ExtrasScriptsSection:Tab({ Title = "Gráficos", Icon = "solar:palette-bold" }),
     Botones = PrincipalesSection:Tab({ Title = "Botones", Icon = "solar:gamepad-bold" }),
+    Inicio = PrincipalesSection:Tab({ Title = "Inició", Icon = "solar:home-2-bold" }),
     Aim = PrincipalesSection:Tab({ Title = "Aimbot", Icon = "solar:target-bold" }),
     Vis = PrincipalesSection:Tab({ Title = "Visual", Icon = "solar:eye-bold" }),
     KillAll = PrincipalesSection:Tab({ Title = "Kill All", Icon = "solar:danger-triangle-bold" }),
@@ -2671,6 +2672,148 @@ Tabs.ExtrasScripts:Button({
 
 task.wait()
 
+-- Pestaña Inició (sin títulos): imagen con marco, texto y botón que copia el link
+do
+    local DISCORD_LINK = "https://discord.gg/xw3Rr2W7v"
+    local IMAGE_ID = 114452675067716
+    local THUMB_SIZE = 170
+    local ContentProvider = game:GetService("ContentProvider")
+
+    local function new(class, props, parent)
+        local o = Instance.new(class)
+        for k, v in pairs(props) do o[k] = v end
+        o.Parent = parent
+        return o
+    end
+
+    local candidates = {
+        "rbxthumb://type=Asset&id=" .. IMAGE_ID .. "&w=420&h=420",
+        "rbxassetid://" .. IMAGE_ID,
+        "https://www.roblox.com/asset/?id=" .. IMAGE_ID,
+    }
+
+    local para = Tabs.Inicio:Paragraph({
+        Title = "Únete al discord copiando el link",
+        Thumbnail = candidates[1],
+        ThumbnailSize = THUMB_SIZE,
+    })
+
+    -- Busca una URL de imagen que realmente cargue (miniatura, asset directo o Decal -> Texture)
+    local function resolveImage()
+        for _, url in ipairs(candidates) do
+            local probe = Instance.new("ImageLabel")
+            probe.Image = url
+            pcall(function() ContentProvider:PreloadAsync({ probe }) end)
+            local loaded = false
+            pcall(function() loaded = probe.IsLoaded end)
+            probe:Destroy()
+            if loaded then return url end
+        end
+        local okObj, objs = pcall(function() return game:GetObjects("rbxassetid://" .. IMAGE_ID) end)
+        if okObj and type(objs) == "table" and objs[1] then
+            local o = objs[1]
+            local tex
+            if o:IsA("Decal") or o:IsA("Texture") then
+                tex = o.Texture
+            elseif o:IsA("ImageLabel") or o:IsA("ImageButton") then
+                tex = o.Image
+            end
+            pcall(function() o:Destroy() end)
+            if tex and tex ~= "" then return tex end
+        end
+        return candidates[1]
+    end
+
+    local function findHost()
+        local list = {
+            para and para.ElementFrame,
+            para and para.Frame,
+            para and para.UIElements and para.UIElements.Main,
+            para and para.UIElements and para.UIElements.Container,
+        }
+        for _, h in ipairs(list) do
+            if typeof(h) == "Instance" and h:IsA("GuiObject") then return h end
+        end
+        return nil
+    end
+
+    task.spawn(function()
+        task.wait(0.4)
+        local url = resolveImage()
+        local host = findHost()
+
+        -- 1) Reaprovechar el ImageLabel de miniatura que WindUI creó dentro del párrafo
+        if host then
+            local best
+            for _, d in ipairs(host:GetDescendants()) do
+                if d:IsA("ImageLabel") then
+                    if string.find(d.Image, tostring(IMAGE_ID), 1, true) then best = d; break end
+                    best = best or d
+                end
+            end
+            if best then
+                best.Image = url
+                best.ScaleType = Enum.ScaleType.Crop
+                best.BackgroundTransparency = 1
+                best.ImageTransparency = 0
+                best.Visible = true
+                if not best:FindFirstChildOfClass("UICorner") then
+                    new("UICorner", { CornerRadius = UDim.new(0, 14) }, best)
+                end
+                return
+            end
+        end
+
+        -- 2) Si no existe, crear un cuadrado propio con la imagen justo encima del párrafo
+        local parent = host and host.Parent
+        if parent then
+            local box = new("Frame", {
+                Name = "NexvyrInicioImagen",
+                Size = UDim2.new(1, 0, 0, THUMB_SIZE),
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                LayoutOrder = host.LayoutOrder - 1,
+            }, parent)
+            local img = new("ImageLabel", {
+                AnchorPoint = Vector2.new(0.5, 0.5),
+                Position = UDim2.fromScale(0.5, 0.5),
+                Size = UDim2.fromOffset(THUMB_SIZE, THUMB_SIZE),
+                BackgroundColor3 = Color3.fromRGB(20, 20, 24),
+                BorderSizePixel = 0,
+                Image = url,
+                ScaleType = Enum.ScaleType.Crop,
+            }, box)
+            new("UICorner", { CornerRadius = UDim.new(0, 14) }, img)
+            new("UIStroke", { Color = Color3.fromRGB(255, 255, 255), Transparency = 0.8, Thickness = 1.5 }, img)
+        end
+    end)
+
+    Tabs.Inicio:Button({
+        Title = "Copiar link",
+        Icon = "solar:copy-bold",
+        Variant = "Primary",
+        Callback = function()
+            local copiar = setclipboard or toclipboard or (syn and syn.write_clipboard)
+            if copiar then
+                local ok = pcall(copiar, DISCORD_LINK)
+                WindUI:Notify({
+                    Title = ok and "¡Link copiado!" or "Error",
+                    Content = ok and "Pégalo en tu navegador para unirte al Discord." or "No se pudo copiar el link.",
+                    Icon = ok and "solar:check-circle-bold" or "solar:close-circle-bold",
+                    Duration = 4,
+                })
+            else
+                WindUI:Notify({
+                    Title = "No compatible",
+                    Content = "Tu executor no permite copiar al portapapeles.",
+                    Icon = "solar:close-circle-bold",
+                    Duration = 4,
+                })
+            end
+        end
+    })
+end
+
 Tabs.Aim:Section({ Title = "Auto Shoot", Icon = "solar:target-bold" })
 
 UIElements.TogAutoShoot = Tabs.Aim:Toggle({
@@ -3400,6 +3543,10 @@ local function notify(kind, on)
 end
 
 local SMOOTH = 14
+local FLY_SPEED = 50
+local flyConn
+local flyVel = Vector3.zero
+local flyControls
 
 local speedConn, jumpConn, requestConn
 local smoothDir = Vector3.zero
@@ -3462,6 +3609,129 @@ local function SetInfJump(state)
     end)
 end
 
+local function flyMoveVector()
+    if flyControls == nil then
+        flyControls = false
+        pcall(function()
+            local ps = player:FindFirstChild("PlayerScripts") or player:WaitForChild("PlayerScripts", 2)
+            local pm = ps and (ps:FindFirstChild("PlayerModule") or ps:WaitForChild("PlayerModule", 2))
+            if pm then flyControls = require(pm):GetControls() end
+        end)
+    end
+    if flyControls then
+        local ok, v = pcall(function() return flyControls:GetMoveVector() end)
+        if ok and typeof(v) == "Vector3" then return v end
+    end
+    local function k(code) return UserInputService:IsKeyDown(code) and 1 or 0 end
+    return Vector3.new(k(Enum.KeyCode.D) - k(Enum.KeyCode.A), 0, k(Enum.KeyCode.S) - k(Enum.KeyCode.W))
+end
+
+local FLY_PITCH_DEAD = math.rad(15)   -- zona muerta: con la cámara inclinada hasta ~15° vuelas recto (pon 0 para seguir la cámara exacta)
+local FLY_LEAN = 35                  -- grados extra que se inclina hacia adelante/atrás al moverte (se suma al ángulo de la cámara)
+local FLY_ROLL = 25                  -- grados que se ladea al moverte de lado
+local flyPos, flyRoot
+local flyAutoRotate
+
+local function SetFly(state)
+    if flyConn then flyConn:Disconnect() flyConn = nil end
+    flyVel = Vector3.zero
+    flyPos, flyRoot = nil, nil
+
+    local hum0 = getChar()
+    if hum0 then
+        pcall(function()
+            hum0.PlatformStand = false
+            if flyAutoRotate ~= nil then hum0.AutoRotate = flyAutoRotate end
+        end)
+    end
+    flyAutoRotate = nil
+    if not state then return end
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    -- Heartbeat = después de la física: la posición propia manda y se corrige la caída por gravedad
+    flyConn = RunService.Heartbeat:Connect(function(dt)
+        local hum, root = getChar()
+        local cam = workspace.CurrentCamera
+        if not hum or not root or not cam or hum.Health <= 0 then return end
+
+        -- sin PlatformStand: el personaje queda en estado de vuelo/caída y se anima (no tieso)
+        if flyAutoRotate == nil then flyAutoRotate = hum.AutoRotate end
+        hum.PlatformStand = false
+        hum.AutoRotate = false
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+
+        -- (re)sincronizar si es un personaje nuevo o si el juego nos teletransportó
+        if root ~= flyRoot or not flyPos or (root.Position - flyPos).Magnitude > 10 then
+            flyRoot = root
+            flyPos = root.Position
+            flyVel = Vector3.zero
+        end
+
+        local mv = flyMoveVector()
+        local cf = cam.CFrame
+        local look = cf.LookVector
+
+        -- inclinación de cámara con zona muerta (la cámara normal mira un poco hacia abajo)
+        local pitch = math.asin(math.clamp(look.Y, -1, 1))
+        local adj = 0
+        if pitch > FLY_PITCH_DEAD then adj = pitch - FLY_PITCH_DEAD
+        elseif pitch < -FLY_PITCH_DEAD then adj = pitch + FLY_PITCH_DEAD end
+        local span = math.pi / 2 - FLY_PITCH_DEAD
+        adj = (span > 0) and (adj * (math.pi / 2) / span) or pitch
+
+        local flat = Vector3.new(look.X, 0, look.Z)
+        if flat.Magnitude < 0.01 then flat = Vector3.new(cf.UpVector.X, 0, cf.UpVector.Z) end
+        flat = flat.Unit
+        local forward = flat * math.cos(adj) + Vector3.new(0, math.sin(adj), 0)
+        local right = Vector3.new(cf.RightVector.X, 0, cf.RightVector.Z)
+        if right.Magnitude > 0.01 then right = right.Unit end
+
+        local dir = right * mv.X + forward * -mv.Z
+
+        local up = (UserInputService:IsKeyDown(Enum.KeyCode.Space) or hum.Jump) and 1 or 0
+        local down = (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.Q)) and 1 or 0
+        dir = dir + Vector3.new(0, up - down, 0)
+
+        local target = Vector3.zero
+        if dir.Magnitude > 0.01 then target = dir.Unit * FLY_SPEED end
+
+        flyVel = flyVel:Lerp(target, 1 - math.exp(-SMOOTH * dt))
+
+        local newPos = flyPos + flyVel * dt
+
+        -- no atravesar el piso al bajar
+        if flyVel.Y < 0 then
+            rayParams.FilterDescendantsInstances = { root.Parent }
+            local feet = hum.HipHeight + root.Size.Y / 2
+            local hit = workspace:Raycast(newPos, Vector3.new(0, -(feet + 0.5), 0), rayParams)
+            if hit then
+                newPos = Vector3.new(newPos.X, math.max(newPos.Y, hit.Position.Y + feet), newPos.Z)
+                flyVel = Vector3.new(flyVel.X, 0, flyVel.Z)
+            end
+        end
+
+        flyPos = newPos
+
+        -- el personaje sigue a la cámara (giro + inclinación) como el fly normal, y se inclina más al moverse
+        local yawRot = CFrame.lookAt(Vector3.zero, flat).Rotation
+        local lv = yawRot:VectorToObjectSpace(flyVel)
+        local ref = math.max(FLY_SPEED, 1)
+        local fwdAmt = math.clamp(-lv.Z / ref, -1, 1)
+        local sideAmt = math.clamp(lv.X / ref, -1, 1)
+        local camTilt = math.clamp(pitch, -math.rad(80), math.rad(80))
+        local bodyPitch = math.clamp(camTilt - math.rad(FLY_LEAN * fwdAmt), -math.rad(110), math.rad(70))
+        local roll = math.rad(-FLY_ROLL * sideAmt)
+        local goalRot = yawRot * CFrame.Angles(bodyPitch, 0, roll)
+        local rot = root.CFrame.Rotation:Lerp(goalRot, 1 - math.exp(-14 * dt))
+        root.CFrame = CFrame.new(flyPos) * rot
+
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
+
 UIElements.TogSpeed = Tabs.Tramposo:Toggle({
     Title = "Speed",
     Value = false,
@@ -3492,6 +3762,21 @@ UIElements.SliJumpPower = Tabs.Tramposo:Slider({
     Step = 1,
     Value = { Min = 1, Max = 100, Default = 45 },
     Callback = function(v) JUMP_POWER = v end
+})
+
+UIElements.TogFly = Tabs.Tramposo:Toggle({
+    Title = "Volar",
+    Value = false,
+    Callback = function(state)
+        SetFly(state)
+    end
+})
+
+UIElements.SliFly = Tabs.Tramposo:Slider({
+    Title = "Velocidad de volar",
+    Step = 1,
+    Value = { Min = 1, Max = 150, Default = 50 },
+    Callback = function(v) FLY_SPEED = v end
 })
 end
 
@@ -5379,7 +5664,366 @@ local function ApplySinVida(state)
     end
 end
 
-local nocheTog, atardecerTog, sinVidaTog
+local elFinalEffects = {}
+local elFinalClouds = nil
+local elFinalQuality = nil
+local elFinalTech = nil
+
+local function ApplyElFinal(state)
+    local Lighting = game:GetService("Lighting")
+    local terrain = workspace:FindFirstChildOfClass("Terrain")
+
+    if state then
+        SaveLightingOriginal("EF")
+        if Lighting:GetAttribute("Orig_ShadowSoftness_EF") == nil then
+            pcall(function() Lighting:SetAttribute("Orig_ShadowSoftness_EF", Lighting.ShadowSoftness) end)
+        end
+        ClearEffects(elFinalEffects)
+
+        local function add(inst)
+            inst.Parent = Lighting
+            table.insert(elFinalEffects, inst)
+            return inst
+        end
+
+        -- Color: contraste fuerte, tono cálido y sombras frías (look anime oscuro/dramático)
+        local cc = Instance.new("ColorCorrectionEffect")
+        cc.Name = "EF_CC"
+        cc.Brightness = -0.01
+        cc.Contrast = 0.4
+        cc.Saturation = 0.14
+        cc.TintColor = Color3.fromRGB(255, 238, 220)
+        add(cc)
+
+        -- Brillo dorado en el sol y las luces fuertes
+        local bloom = Instance.new("BloomEffect")
+        bloom.Name = "EF_Bloom"
+        bloom.Intensity = 0.55
+        bloom.Size = 28
+        bloom.Threshold = 0.9
+        add(bloom)
+
+        -- Rayos de luz entre las nubes
+        local rays = Instance.new("SunRaysEffect")
+        rays.Name = "EF_Rays"
+        rays.Intensity = 0.3
+        rays.Spread = 1
+        add(rays)
+
+        -- Cielo con sol grande y estrellas
+        local sky = Instance.new("Sky")
+        sky.Name = "EF_Sky"
+        sky.SunAngularSize = 24
+        sky.MoonAngularSize = 11
+        sky.StarCount = 3000
+        sky.CelestialBodiesShown = true
+        add(sky)
+
+        -- Neblina dorada iluminada por el sol
+        local atmo = Instance.new("Atmosphere")
+        atmo.Name = "EF_Atmo"
+        atmo.Density = 0.32
+        atmo.Offset = 0.2
+        atmo.Color = Color3.fromRGB(198, 172, 150)
+        atmo.Decay = Color3.fromRGB(92, 70, 80)
+        atmo.Glare = 0.7
+        atmo.Haze = 1.9
+        add(atmo)
+
+        -- Nubes oscuras y densas
+        if terrain then
+            local clouds = terrain:FindFirstChildOfClass("Clouds")
+            if clouds then
+                elFinalClouds = { obj = clouds, Enabled = clouds.Enabled, Cover = clouds.Cover, Density = clouds.Density, Color = clouds.Color }
+            else
+                clouds = Instance.new("Clouds")
+                clouds.Parent = terrain
+                elFinalClouds = { created = clouds }
+            end
+            clouds.Enabled = true
+            clouds.Cover = 0.78
+            clouds.Density = 0.72
+            clouds.Color = Color3.fromRGB(70, 62, 72)
+        end
+
+        Lighting.ClockTime = 17.3
+        Lighting.Brightness = 3.4
+        Lighting.Ambient = Color3.fromRGB(38, 42, 62)
+        Lighting.OutdoorAmbient = Color3.fromRGB(78, 82, 108)
+        Lighting.ColorShift_Top = Color3.fromRGB(255, 196, 120)
+        Lighting.ColorShift_Bottom = Color3.fromRGB(30, 34, 56)
+        Lighting.ExposureCompensation = 0.15
+        Lighting.FogColor = Color3.fromRGB(52, 48, 60)
+        Lighting.FogStart = 250
+        Lighting.FogEnd = 2600
+        Lighting.GlobalShadows = true
+        Lighting.EnvironmentDiffuseScale = 0.9
+        Lighting.EnvironmentSpecularScale = 1
+
+        -- Sombras HD y nítidas (sin desenfoque)
+        pcall(function() Lighting.ShadowSoftness = 0.03 end)
+
+        -- Iluminación Future (sombras y reflejos más detallados) si el executor lo permite
+        pcall(function()
+            if gethiddenproperty and sethiddenproperty then
+                if elFinalTech == nil then elFinalTech = gethiddenproperty(Lighting, "Technology") end
+                sethiddenproperty(Lighting, "Technology", Enum.Technology.Future)
+            end
+        end)
+
+        -- Calidad gráfica al máximo
+        pcall(function()
+            local r = settings().Rendering
+            if elFinalQuality == nil then elFinalQuality = r.QualityLevel end
+            r.QualityLevel = Enum.QualityLevel.Level21
+        end)
+    else
+        ClearEffects(elFinalEffects)
+
+        if elFinalClouds then
+            pcall(function()
+                if elFinalClouds.created then
+                    elFinalClouds.created:Destroy()
+                elseif elFinalClouds.obj then
+                    local o = elFinalClouds.obj
+                    o.Enabled = elFinalClouds.Enabled
+                    o.Cover = elFinalClouds.Cover
+                    o.Density = elFinalClouds.Density
+                    o.Color = elFinalClouds.Color
+                end
+            end)
+            elFinalClouds = nil
+        end
+
+        RestoreLighting("EF")
+
+        local softness = Lighting:GetAttribute("Orig_ShadowSoftness_EF")
+        if softness ~= nil then
+            pcall(function() Lighting.ShadowSoftness = softness end)
+            Lighting:SetAttribute("Orig_ShadowSoftness_EF", nil)
+        end
+
+        if elFinalTech ~= nil then
+            pcall(function()
+                if sethiddenproperty then sethiddenproperty(Lighting, "Technology", elFinalTech) end
+            end)
+            elFinalTech = nil
+        end
+
+        if elFinalQuality ~= nil then
+            pcall(function() settings().Rendering.QualityLevel = elFinalQuality end)
+            elFinalQuality = nil
+        end
+    end
+end
+
+local skypeEffects = {}
+local skypeStash = {}
+local skypeClouds = nil
+local skypeWater = nil
+local skypeQuality = nil
+local skypeTech = nil
+
+local function ApplySkype(state)
+    local Lighting = game:GetService("Lighting")
+    local terrain = workspace:FindFirstChildOfClass("Terrain")
+
+    if state then
+        SaveLightingOriginal("SK")
+        if Lighting:GetAttribute("Orig_ShadowSoftness_SK") == nil then
+            pcall(function() Lighting:SetAttribute("Orig_ShadowSoftness_SK", Lighting.ShadowSoftness) end)
+        end
+        ClearEffects(skypeEffects)
+
+        -- Si el juego ya trae su propio Sky/Atmosphere, se guardan aparte para que el nuestro sí se vea
+        table.clear(skypeStash)
+        for _, child in ipairs(Lighting:GetChildren()) do
+            if child:IsA("Sky") or child:IsA("Atmosphere") then
+                table.insert(skypeStash, child)
+            end
+        end
+        for _, inst in ipairs(skypeStash) do
+            pcall(function() inst.Parent = nil end)
+        end
+
+        local function add(inst)
+            inst.Parent = Lighting
+            table.insert(skypeEffects, inst)
+            return inst
+        end
+
+        -- Cielo hermoso: sol grande, luna y estrellas
+        local sky = Instance.new("Sky")
+        sky.Name = "SK_Sky"
+        sky.SunAngularSize = 21
+        sky.MoonAngularSize = 11
+        sky.StarCount = 3000
+        sky.CelestialBodiesShown = true
+        add(sky)
+
+        -- Neblina / atmósfera con profundidad y brillo del sol
+        local atmo = Instance.new("Atmosphere")
+        atmo.Name = "SK_Atmo"
+        atmo.Density = 0.34
+        atmo.Offset = 0.25
+        atmo.Color = Color3.fromRGB(170, 197, 232)
+        atmo.Decay = Color3.fromRGB(255, 196, 148)
+        atmo.Glare = 0.45
+        atmo.Haze = 1.8
+        add(atmo)
+
+        -- Color vivo estilo PC
+        local cc = Instance.new("ColorCorrectionEffect")
+        cc.Name = "SK_CC"
+        cc.Brightness = 0
+        cc.Contrast = 0.2
+        cc.Saturation = 0.28
+        cc.TintColor = Color3.fromRGB(255, 249, 242)
+        add(cc)
+
+        -- Brillo en luces fuertes y reflejos
+        local bloom = Instance.new("BloomEffect")
+        bloom.Name = "SK_Bloom"
+        bloom.Intensity = 0.45
+        bloom.Size = 36
+        bloom.Threshold = 0.95
+        add(bloom)
+
+        -- Rayos de sol
+        local rays = Instance.new("SunRaysEffect")
+        rays.Name = "SK_Rays"
+        rays.Intensity = 0.2
+        rays.Spread = 0.85
+        add(rays)
+
+        -- Profundidad de campo suave: solo desenfoca la lejanía, lo cercano queda nítido
+        local dof = Instance.new("DepthOfFieldEffect")
+        dof.Name = "SK_DOF"
+        dof.FarIntensity = 0.12
+        dof.NearIntensity = 0
+        dof.FocusDistance = 120
+        dof.InFocusRadius = 90
+        add(dof)
+
+        -- Nubes
+        if terrain then
+            local clouds = terrain:FindFirstChildOfClass("Clouds")
+            if clouds then
+                skypeClouds = { obj = clouds, Enabled = clouds.Enabled, Cover = clouds.Cover, Density = clouds.Density, Color = clouds.Color }
+            else
+                clouds = Instance.new("Clouds")
+                clouds.Parent = terrain
+                skypeClouds = { created = clouds }
+            end
+            clouds.Enabled = true
+            clouds.Cover = 0.6
+            clouds.Density = 0.65
+            clouds.Color = Color3.fromRGB(255, 255, 255)
+
+            -- Agua con reflejos y olas (si el mapa tiene agua)
+            if not skypeWater then
+                skypeWater = {
+                    WaterColor = terrain.WaterColor,
+                    WaterReflectance = terrain.WaterReflectance,
+                    WaterTransparency = terrain.WaterTransparency,
+                    WaterWaveSize = terrain.WaterWaveSize,
+                    WaterWaveSpeed = terrain.WaterWaveSpeed,
+                }
+            end
+            pcall(function()
+                terrain.WaterColor = Color3.fromRGB(28, 128, 158)
+                terrain.WaterReflectance = 0.9
+                terrain.WaterTransparency = 0.85
+                terrain.WaterWaveSize = 0.35
+                terrain.WaterWaveSpeed = 14
+            end)
+        end
+
+        Lighting.ClockTime = 16.2
+        Lighting.Brightness = 3
+        Lighting.Ambient = Color3.fromRGB(70, 76, 98)
+        Lighting.OutdoorAmbient = Color3.fromRGB(112, 122, 148)
+        Lighting.ColorShift_Top = Color3.fromRGB(255, 236, 205)
+        Lighting.ColorShift_Bottom = Color3.fromRGB(60, 70, 100)
+        Lighting.ExposureCompensation = 0.2
+        Lighting.FogColor = Color3.fromRGB(190, 205, 226)
+        Lighting.FogStart = 400
+        Lighting.FogEnd = 4500
+        Lighting.GlobalShadows = true
+        Lighting.EnvironmentDiffuseScale = 1
+        Lighting.EnvironmentSpecularScale = 1
+
+        -- Sombras completas y definidas
+        pcall(function() Lighting.ShadowSoftness = 0.12 end)
+
+        -- Iluminación Future (máximo detalle de sombras y reflejos) si el executor lo permite
+        pcall(function()
+            if gethiddenproperty and sethiddenproperty then
+                if skypeTech == nil then skypeTech = gethiddenproperty(Lighting, "Technology") end
+                sethiddenproperty(Lighting, "Technology", Enum.Technology.Future)
+            end
+        end)
+
+        -- Calidad gráfica al máximo
+        pcall(function()
+            local r = settings().Rendering
+            if skypeQuality == nil then skypeQuality = r.QualityLevel end
+            r.QualityLevel = Enum.QualityLevel.Level21
+        end)
+    else
+        ClearEffects(skypeEffects)
+
+        -- Devolver el Sky/Atmosphere original del juego
+        for _, inst in ipairs(skypeStash) do
+            pcall(function() inst.Parent = Lighting end)
+        end
+        table.clear(skypeStash)
+
+        if skypeClouds then
+            pcall(function()
+                if skypeClouds.created then
+                    skypeClouds.created:Destroy()
+                elseif skypeClouds.obj then
+                    local o = skypeClouds.obj
+                    o.Enabled = skypeClouds.Enabled
+                    o.Cover = skypeClouds.Cover
+                    o.Density = skypeClouds.Density
+                    o.Color = skypeClouds.Color
+                end
+            end)
+            skypeClouds = nil
+        end
+
+        if skypeWater and terrain then
+            pcall(function()
+                for k, v in pairs(skypeWater) do terrain[k] = v end
+            end)
+            skypeWater = nil
+        end
+
+        RestoreLighting("SK")
+
+        local softness = Lighting:GetAttribute("Orig_ShadowSoftness_SK")
+        if softness ~= nil then
+            pcall(function() Lighting.ShadowSoftness = softness end)
+            Lighting:SetAttribute("Orig_ShadowSoftness_SK", nil)
+        end
+
+        if skypeTech ~= nil then
+            pcall(function()
+                if sethiddenproperty then sethiddenproperty(Lighting, "Technology", skypeTech) end
+            end)
+            skypeTech = nil
+        end
+
+        if skypeQuality ~= nil then
+            pcall(function() settings().Rendering.QualityLevel = skypeQuality end)
+            skypeQuality = nil
+        end
+    end
+end
+
+local nocheTog, atardecerTog, sinVidaTog, finalTog, skypeTog
 
 nocheTog = Tabs.Graficos:Toggle({
     Title = "Noche Sangrienta",
@@ -5388,6 +6032,8 @@ nocheTog = Tabs.Graficos:Toggle({
         if state then
             if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
             if sinVidaTog then pcall(function() sinVidaTog:Set(false) end) end
+            if finalTog then pcall(function() finalTog:Set(false) end) end
+            if skypeTog then pcall(function() skypeTog:Set(false) end) end
         end
         ApplyNocheSangrienta(state)
     end
@@ -5400,6 +6046,8 @@ atardecerTog = Tabs.Graficos:Toggle({
         if state then
             if nocheTog then pcall(function() nocheTog:Set(false) end) end
             if sinVidaTog then pcall(function() sinVidaTog:Set(false) end) end
+            if finalTog then pcall(function() finalTog:Set(false) end) end
+            if skypeTog then pcall(function() skypeTog:Set(false) end) end
         end
         ApplyAtardecer(state)
     end
@@ -5412,8 +6060,38 @@ sinVidaTog = Tabs.Graficos:Toggle({
         if state then
             if nocheTog then pcall(function() nocheTog:Set(false) end) end
             if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
+            if finalTog then pcall(function() finalTog:Set(false) end) end
+            if skypeTog then pcall(function() skypeTog:Set(false) end) end
         end
         ApplySinVida(state)
+    end
+})
+
+finalTog = Tabs.Graficos:Toggle({
+    Title = "El final",
+    Value = false,
+    Callback = function(state)
+        if state then
+            if nocheTog then pcall(function() nocheTog:Set(false) end) end
+            if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
+            if sinVidaTog then pcall(function() sinVidaTog:Set(false) end) end
+            if skypeTog then pcall(function() skypeTog:Set(false) end) end
+        end
+        ApplyElFinal(state)
+    end
+})
+
+skypeTog = Tabs.Graficos:Toggle({
+    Title = "skype",
+    Value = false,
+    Callback = function(state)
+        if state then
+            if nocheTog then pcall(function() nocheTog:Set(false) end) end
+            if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
+            if sinVidaTog then pcall(function() sinVidaTog:Set(false) end) end
+            if finalTog then pcall(function() finalTog:Set(false) end) end
+        end
+        ApplySkype(state)
     end
 })
 end
