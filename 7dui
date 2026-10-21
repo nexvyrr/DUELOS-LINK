@@ -1,3 +1,619 @@
+do
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local RunService       = game:GetService("RunService")
+local Debris           = game:GetService("Debris")
+
+local WORD    = "NEXVYRHUB"
+local FONT    = Enum.Font.Garamond
+local FX_LEVEL = 1
+
+local T = {
+	beams   = 0.00,
+	compass = 0.00,
+	divider = 0.20,
+	letters = 0.35,
+	step    = 0.065,
+	outro   = 3.00,
+}
+
+local COL_GOLD   = Color3.fromRGB(201, 169, 110)
+local COL_GOLD_L = Color3.fromRGB(246, 226, 178)
+local COL_DIM    = Color3.fromRGB(58, 50, 40)
+local COL_BLACK  = Color3.fromRGB(0, 0, 0)
+
+local function new(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props) do o[k] = v end
+	o.Parent = parent
+	return o
+end
+
+local running = setmetatable({}, { __mode = "k" })
+
+local function tw(inst, dur, props, style, dir)
+	local rec = running[inst]
+	if not rec then rec = {}; running[inst] = rec end
+	for k in pairs(props) do
+		local old = rec[k]
+		if old then old:Cancel() end
+	end
+	local t = TweenService:Create(inst, TweenInfo.new(dur, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
+	for k in pairs(props) do rec[k] = t end
+	t:Play()
+	return t
+end
+
+local function setp(inst, props)
+	local rec = running[inst]
+	for k, v in pairs(props) do
+		if rec and rec[k] then rec[k]:Cancel(); rec[k] = nil end
+		inst[k] = v
+	end
+end
+
+local function rnd(a, b) return a + math.random() * (b - a) end
+local function kp(t, v) return NumberSequenceKeypoint.new(t, v) end
+
+local QUINT = Enum.EasingStyle.Quint
+local EXPO  = Enum.EasingStyle.Exponential
+local BACK  = Enum.EasingStyle.Back
+local SINE  = Enum.EasingStyle.Sine
+local INOUT = Enum.EasingDirection.InOut
+local IN    = Enum.EasingDirection.In
+
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local prev = playerGui:FindFirstChild("NexvyrIntro")
+if prev then prev:Destroy() end
+
+local gui = new("ScreenGui", {
+	Name = "NexvyrIntro", ResetOnSpawn = false, IgnoreGuiInset = true,
+	DisplayOrder = 999, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+}, playerGui)
+
+local bgFrame = new("Frame", {
+	Name = "bg", Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL_BLACK,
+	BorderSizePixel = 0, ZIndex = 0,
+}, gui)
+
+local world = new("CanvasGroup", {
+	Name = "world", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 1,
+}, gui)
+
+local stage = new("Frame", {
+	Name = "stage", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 3,
+}, gui)
+new("UIAspectRatioConstraint", {
+	AspectRatio = 2, AspectType = Enum.AspectType.FitWithinMaxSize, DominantAxis = Enum.DominantAxis.Width,
+}, stage)
+local stageScale = new("UIScale", { Scale = 1 }, stage)
+
+local fx = new("Frame", {
+	Name = "fx", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 20,
+}, stage)
+
+local flash = new("Frame", {
+	Name = "flash", Size = UDim2.fromScale(1, 1), BackgroundColor3 = COL_GOLD_L,
+	BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 50,
+}, gui)
+
+local bgFill = new("Frame", {
+	Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 1,
+}, world)
+new("UIGradient", {
+	Color = ColorSequence.new(Color3.fromRGB(10, 9, 8), Color3.fromRGB(26, 19, 10)),
+	Rotation = 90,
+}, bgFill)
+
+local beams = {}
+for i = 1, 5 do
+	local b = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5 + (i - 3) * 0.14, -0.1),
+		Size = UDim2.fromScale(0.07, 1.4), BackgroundColor3 = COL_GOLD, BackgroundTransparency = 1,
+		BorderSizePixel = 0, ZIndex = 2,
+	}, world)
+	new("UIGradient", { Transparency = NumberSequence.new({ kp(0, 0.2), kp(0.6, 0.7), kp(1, 1) }), Rotation = 90 }, b)
+	beams[i] = { f = b, ph = i * 1.3, base = (i - 3) * 6 }
+end
+
+local function vignette(ax, ay, sx, sy, rot)
+	local v = new("Frame", {
+		AnchorPoint = Vector2.new(ax, ay), Position = UDim2.fromScale(ax, ay),
+		Size = UDim2.fromScale(sx, sy), BackgroundColor3 = COL_BLACK, BorderSizePixel = 0, ZIndex = 5,
+	}, world)
+	new("UIGradient", { Transparency = NumberSequence.new(0.05, 1), Rotation = rot }, v)
+end
+vignette(0, 0, 0.22, 1, 0)
+vignette(1, 0, 0.22, 1, 180)
+vignette(0, 0, 1, 0.2, 90)
+vignette(0, 1, 1, 0.2, 270)
+
+local dustData = {}
+for i = 1, 18 do
+	local sz = math.random(2, 4)
+	local f = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Rotation = 45, Size = UDim2.fromOffset(sz, sz),
+		BackgroundColor3 = (i % 3 == 0) and COL_GOLD_L or COL_GOLD, BackgroundTransparency = 0.6,
+		BorderSizePixel = 0, ZIndex = 3,
+	}, world)
+	dustData[i] = { f = f, x = math.random(), y = math.random(), sp = rnd(0.02, 0.07), ph = rnd(0, 6.28) }
+end
+
+local function doFlash(power, dur, color)
+	setp(flash, { BackgroundColor3 = color or COL_GOLD_L, BackgroundTransparency = power })
+	tw(flash, dur or 0.3, { BackgroundTransparency = 1 })
+end
+
+local function dustBurst(sx, sy, count, color, dist)
+	for _ = 1, count do
+		local ang = rnd(-math.pi * 0.95, -math.pi * 0.05)
+		local d = dist * rnd(0.4, 1.2)
+		local sz = math.random(2, 4)
+		local dur = rnd(0.5, 0.9)
+		local f = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(sx, 0, sy, 0),
+			Size = UDim2.fromOffset(sz, sz), Rotation = 45, BackgroundColor3 = color,
+			BorderSizePixel = 0, ZIndex = 8,
+		}, fx)
+		tw(f, dur, { Position = UDim2.new(sx, math.cos(ang) * d, sy, math.sin(ang) * d), BackgroundTransparency = 1 }, QUINT)
+		Debris:AddItem(f, dur + 0.05)
+	end
+end
+
+local function ringPulse(sx, sy, toScale, dur, color)
+	local r = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(sx, sy),
+		Size = UDim2.fromScale(0.05, 0.05), SizeConstraint = Enum.SizeConstraint.RelativeYY,
+		BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 7,
+	}, fx)
+	new("UICorner", { CornerRadius = UDim.new(1, 0) }, r)
+	local st = new("UIStroke", { Thickness = 1.5, Color = color or COL_GOLD_L }, r)
+	tw(r, dur, { Size = UDim2.fromScale(toScale, toScale) }, EXPO)
+	tw(st, dur, { Transparency = 1 })
+	Debris:AddItem(r, dur + 0.05)
+end
+
+local function flare(sy, dur)
+	local f = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, sy),
+		Size = UDim2.new(0, 0, 0, 2), BackgroundColor3 = COL_GOLD_L, BorderSizePixel = 0, ZIndex = 9,
+	}, fx)
+	new("UIGradient", { Transparency = NumberSequence.new({ kp(0, 1), kp(0.5, 0), kp(1, 1) }) }, f)
+	tw(f, dur, { Size = UDim2.new(1.1, 0, 0, 2) }, EXPO)
+	task.delay(dur * 0.35, function() tw(f, dur * 0.65, { BackgroundTransparency = 1 }) end)
+	Debris:AddItem(f, dur + 0.1)
+end
+
+local function pillar(sx)
+	local p = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(sx, 0.5),
+		Size = UDim2.new(0, 2, 0, 0), BackgroundColor3 = COL_GOLD_L, BorderSizePixel = 0, ZIndex = 8,
+	}, fx)
+	new("UIGradient", { Transparency = NumberSequence.new({ kp(0, 1), kp(0.5, 0.1), kp(1, 1) }), Rotation = 90 }, p)
+	tw(p, 0.25, { Size = UDim2.new(0, 2, 0.34, 0) }, QUINT)
+	task.delay(0.2, function() tw(p, 0.45, { BackgroundTransparency = 1, Size = UDim2.new(0, 1, 0.34, 0) }) end)
+	Debris:AddItem(p, 0.8)
+end
+
+local function rays(sx, sy, count, len, color)
+	for k = 1, count do
+		local ang = (k / count) * 360 + rnd(-6, 6)
+		local pivot = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(sx, sy),
+			Size = UDim2.fromOffset(0, 0), BackgroundTransparency = 1, Rotation = ang, ZIndex = 8,
+		}, fx)
+		local r = new("Frame", {
+			AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromOffset(0, 0),
+			Size = UDim2.fromOffset(0, 2), BackgroundColor3 = color or COL_GOLD_L, BorderSizePixel = 0,
+		}, pivot)
+		new("UIGradient", { Transparency = NumberSequence.new({ kp(0, 0.2), kp(1, 1) }) }, r)
+		local dur = rnd(0.45, 0.7)
+		tw(r, dur, { Size = UDim2.fromOffset(len * rnd(0.7, 1.1), 2), BackgroundTransparency = 1 }, QUINT)
+		Debris:AddItem(pivot, dur + 0.05)
+	end
+end
+
+local function sparkle(sx, sy, size, color)
+	local rot = rnd(0, 45)
+	local s = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(sx, sy),
+		Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, Rotation = rot, ZIndex = 9,
+	}, fx)
+	local sc = new("UIScale", { Scale = 0 }, s)
+	new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = color, BorderSizePixel = 0,
+	}, s)
+	new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = color, BorderSizePixel = 0,
+	}, s)
+	tw(sc, 0.35, { Scale = 1 }, BACK)
+	tw(s, 1.0, { Rotation = rot + 70 }, SINE)
+	task.delay(0.4, function() tw(sc, 0.5, { Scale = 0 }, QUINT, IN) end)
+	Debris:AddItem(s, 1.1)
+end
+
+local function streak()
+	local x, y = rnd(0.05, 0.6), rnd(0.05, 0.55)
+	local f = new("Frame", {
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.fromScale(x, y), Size = UDim2.fromOffset(90, 1),
+		Rotation = 25, BackgroundColor3 = COL_GOLD_L, BorderSizePixel = 0, ZIndex = 4,
+	}, world)
+	new("UIGradient", { Transparency = NumberSequence.new({ kp(0, 1), kp(1, 0) }) }, f)
+	local dur = rnd(0.7, 1.1)
+	tw(f, dur, { Position = UDim2.fromScale(x + 0.25, y + 0.12), BackgroundTransparency = 1 }, QUINT)
+	Debris:AddItem(f, dur + 0.05)
+end
+
+local function shake(power, dur)
+	task.spawn(function()
+		local t = os.clock()
+		while os.clock() - t < dur do
+			local k = 1 - (os.clock() - t) / dur
+			stage.Position = UDim2.new(0.5, rnd(-power, power) * k, 0.5, rnd(-power, power) * k)
+			task.wait()
+		end
+		stage.Position = UDim2.fromScale(0.5, 0.5)
+	end)
+end
+
+local function makeDivider(parent, pos, width, z)
+	local d = {}
+	d.root = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = pos, Size = UDim2.new(width, 0, 0, 14),
+		BackgroundTransparency = 1, ZIndex = z,
+	}, parent)
+	d.line = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0, 0, 0, 1), BackgroundColor3 = COL_GOLD, BorderSizePixel = 0, ZIndex = z,
+	}, d.root)
+	new("UIGradient", {
+		Transparency = NumberSequence.new({ kp(0, 1), kp(0.15, 0.25), kp(0.5, 0), kp(0.85, 0.25), kp(1, 1) }),
+	}, d.line)
+	local dia = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(8, 8), Rotation = 45, BackgroundColor3 = COL_GOLD_L,
+		BorderSizePixel = 0, ZIndex = z + 1,
+	}, d.root)
+	d.scales = { new("UIScale", { Scale = 0 }, dia) }
+	for _, ox in ipairs({ -18, 18 }) do
+		local s = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, ox, 0.5, 0),
+			Size = UDim2.fromOffset(4, 4), Rotation = 45, BackgroundColor3 = COL_GOLD,
+			BorderSizePixel = 0, ZIndex = z + 1,
+		}, d.root)
+		d.scales[#d.scales + 1] = new("UIScale", { Scale = 0 }, s)
+	end
+	function d.open(dur)
+		tw(d.line, dur or 0.6, { Size = UDim2.new(1, 0, 0, 1) }, EXPO)
+		for k, s in ipairs(d.scales) do
+			task.delay(0.1 + k * 0.06, function() tw(s, 0.4, { Scale = 1 }, BACK) end)
+		end
+	end
+	function d.close(dur)
+		tw(d.line, dur or 0.3, { Size = UDim2.new(0, 0, 0, 1) }, QUINT, IN)
+		for _, s in ipairs(d.scales) do tw(s, 0.25, { Scale = 0 }) end
+	end
+	return d
+end
+
+local holder = new("Frame", {
+	Name = "compass", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.fromScale(1.6, 1.6), SizeConstraint = Enum.SizeConstraint.RelativeYY,
+	BackgroundTransparency = 1, ZIndex = 2,
+}, stage)
+
+local glowA = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.fromScale(1.25, 1.25), BackgroundColor3 = Color3.fromRGB(90, 62, 22),
+	BackgroundTransparency = 1, BorderSizePixel = 0,
+}, holder)
+new("UICorner", { CornerRadius = UDim.new(1, 0) }, glowA)
+
+local compassCG = new("CanvasGroup", {
+	Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, GroupTransparency = 1,
+}, holder)
+
+local function ringIn(parent, size, thick, transp)
+	local f = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(size, size), BackgroundTransparency = 1, BorderSizePixel = 0,
+	}, parent)
+	new("UICorner", { CornerRadius = UDim.new(1, 0) }, f)
+	new("UIStroke", { Thickness = thick, Color = COL_GOLD, Transparency = transp }, f)
+end
+ringIn(compassCG, 0.99, 1.5, 0.3)
+ringIn(compassCG, 0.90, 1, 0.55)
+ringIn(compassCG, 0.66, 1, 0.7)
+
+for k = 0, 23 do
+	local a = k / 24 * math.pi * 2
+	local major = (k % 2 == 0)
+	new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5 + math.cos(a) * 0.472, 0.5 + math.sin(a) * 0.472),
+		Size = UDim2.fromOffset(major and 2 or 1, major and 8 or 4),
+		Rotation = math.deg(a) + 90, BackgroundColor3 = COL_GOLD,
+		BackgroundTransparency = major and 0.3 or 0.6, BorderSizePixel = 0,
+	}, compassCG)
+end
+
+for k = 0, 7 do
+	local a = k / 8 * math.pi * 2
+	local len = (k % 2 == 0) and 0.50 or 0.38
+	local spike = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5 + math.cos(a) * len / 2, 0.5 + math.sin(a) * len / 2),
+		Size = UDim2.new(0, 2, len, 0), Rotation = math.deg(a) + 90,
+		BackgroundColor3 = COL_GOLD, BorderSizePixel = 0,
+	}, compassCG)
+	new("UIGradient", { Transparency = NumberSequence.new(0.1, 1), Rotation = 90 }, spike)
+	new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5 + math.cos(a) * len, 0.5 + math.sin(a) * len),
+		Size = UDim2.fromOffset(7, 7), Rotation = 45, BackgroundColor3 = COL_GOLD_L, BorderSizePixel = 0,
+	}, compassCG)
+end
+
+local inner = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.fromScale(0.78, 0.78), BackgroundTransparency = 1,
+}, compassCG)
+ringIn(inner, 1, 1, 0.6)
+for k = 0, 11 do
+	local a = k / 12 * math.pi * 2
+	new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5 + math.cos(a) * 0.5, 0.5 + math.sin(a) * 0.5),
+		Size = UDim2.fromOffset(k % 3 == 0 and 6 or 4, k % 3 == 0 and 6 or 4), Rotation = 45,
+		BackgroundColor3 = COL_GOLD, BackgroundTransparency = k % 3 == 0 and 0.1 or 0.5, BorderSizePixel = 0,
+	}, inner)
+end
+
+local divTop = makeDivider(stage, UDim2.fromScale(0.5, 0.36), 0.5, 5)
+local divBot = makeDivider(stage, UDim2.fromScale(0.5, 0.64), 0.5, 5)
+
+local progTrack = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.9),
+	Size = UDim2.new(0.16, 0, 0, 1), BackgroundColor3 = COL_DIM, BackgroundTransparency = 1,
+	BorderSizePixel = 0, ZIndex = 5,
+}, stage)
+local progFill = new("Frame", {
+	Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = COL_GOLD_L, BackgroundTransparency = 0, BorderSizePixel = 0,
+}, progTrack)
+new("UIGradient", { Transparency = NumberSequence.new({ kp(0, 0.6), kp(1, 0) }) }, progFill)
+
+local TITLE_W_START = 0.40
+local TITLE_W_END   = 0.66
+
+local container = new("Frame", {
+	Name = "Title", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.fromScale(TITLE_W_START, 0.15), BackgroundTransparency = 1, ZIndex = 6,
+}, stage)
+new("UIListLayout", {
+	FillDirection = Enum.FillDirection.Horizontal,
+	HorizontalAlignment = Enum.HorizontalAlignment.Center,
+	VerticalAlignment = Enum.VerticalAlignment.Center,
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	Padding = UDim.new(0, 0),
+}, container)
+
+local letters = {}
+local n = #WORD
+
+for i = 1, n do
+	local ch = WORD:sub(i, i)
+
+	local slot = new("Frame", {
+		LayoutOrder = i, Size = UDim2.new(1 / n, 0, 1, 0), BackgroundTransparency = 1, ZIndex = 6,
+	}, container)
+
+	local box = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.62, 0.9), BackgroundTransparency = 1,
+		Rotation = (i % 2 == 0) and 12 or -12,
+	}, slot)
+	local sc = new("UIScale", { Scale = 1.8 }, box)
+
+	local shadow = new("TextLabel", {
+		Position = UDim2.fromScale(0.03, 0.045), Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
+		Font = FONT, Text = ch, TextScaled = true, TextColor3 = COL_BLACK, TextTransparency = 1, ZIndex = 1,
+	}, box)
+
+	local main = new("TextLabel", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Font = FONT, Text = ch,
+		TextScaled = true, TextColor3 = Color3.new(1, 1, 1), TextTransparency = 1, ZIndex = 2,
+	}, box)
+	new("UIGradient", {
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0,   Color3.fromRGB(240, 242, 245)),
+			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(214, 192, 150)),
+			ColorSequenceKeypoint.new(1,   Color3.fromRGB(150, 120, 72)),
+		}),
+		Rotation = 90,
+	}, main)
+
+	local shine = new("TextLabel", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Font = FONT, Text = ch,
+		TextScaled = true, TextColor3 = Color3.new(1, 1, 1), TextTransparency = 0, ZIndex = 3,
+	}, box)
+	local shineGrad = new("UIGradient", {
+		Transparency = NumberSequence.new({ kp(0, 1), kp(0.4, 1), kp(0.5, 0.05), kp(0.6, 1), kp(1, 1) }),
+		Rotation = 25, Offset = Vector2.new(-1, 0),
+	}, shine)
+
+	letters[i] = { box = box, scale = sc, main = main, shadow = shadow, shine = shine, shineGrad = shineGrad }
+end
+
+local function letterX(k) return 0.5 + (((k - 0.5) / n) - 0.5) * TITLE_W_END end
+
+local function shineSweep()
+	for i = 1, n do
+		local L = letters[i]
+		task.delay((i - 1) * 0.05, function()
+			setp(L.shineGrad, { Offset = Vector2.new(-1, 0) })
+			tw(L.shineGrad, 0.55, { Offset = Vector2.new(1, 0) }, SINE, INOUT)
+		end)
+	end
+end
+
+local alive   = true
+local floatOn = false
+local kick    = 0
+
+local bgConn = RunService.RenderStepped:Connect(function(dt)
+	local t = os.clock()
+	kick = kick * math.exp(-2.5 * dt)
+	compassCG.Rotation = (t * 4 + kick) % 360
+	inner.Rotation = (-t * 7 - kick * 0.6) % 360
+
+	for _, d in ipairs(dustData) do
+		d.y = d.y - d.sp * dt
+		if d.y < -0.05 then d.y = 1.05; d.x = math.random() end
+		d.f.Position = UDim2.fromScale(d.x + math.sin(t * 0.6 + d.ph) * 0.01, d.y)
+		d.f.BackgroundTransparency = 0.5 + 0.4 * math.sin(t * 1.6 + d.ph)
+	end
+
+	for _, b in ipairs(beams) do
+		b.f.Rotation = b.base + math.sin(t * 0.35 + b.ph) * 4
+	end
+
+	if floatOn then
+		for i = 1, n do
+			letters[i].box.Position = UDim2.fromScale(0.5, 0.5 + math.sin(t * 1.7 + i * 0.55) * 0.035)
+		end
+		glowA.BackgroundTransparency = 0.94 + math.sin(t * 1.4) * 0.02
+	end
+end)
+
+task.spawn(function()
+	while alive do
+		task.wait(rnd(0.25, 0.5))
+		if FX_LEVEL > 0 and floatOn and alive then
+			sparkle(rnd(0.17, 0.83), rnd(0.42, 0.58), math.random(7, 11), COL_GOLD_L)
+		end
+	end
+end)
+task.spawn(function()
+	while alive do
+		task.wait(rnd(2.5, 5))
+		if FX_LEVEL > 0 and floatOn and alive then streak() end
+	end
+end)
+task.spawn(function()
+	while alive do
+		task.wait(3.6)
+		if floatOn and alive then shineSweep() end
+	end
+end)
+
+-- La intro ya NO se puede saltar tocando la pantalla, el mouse ni el teclado.
+
+local events = {}
+local function at(t, fn) events[#events + 1] = { t = t, fn = fn } end
+
+local t0 = os.clock()
+local function now() return os.clock() - t0 end
+
+at(T.beams, function()
+	for _, b in ipairs(beams) do tw(b.f, 1.6, { BackgroundTransparency = 0.93 }) end
+end)
+
+at(T.compass, function()
+	tw(compassCG, 0.9, { GroupTransparency = 0 })
+	tw(holder, 1.6, { Size = UDim2.fromScale(0.96, 0.96) }, EXPO)
+	tw(glowA, 1.2, { BackgroundTransparency = 0.95 })
+	ringPulse(0.5, 0.5, 1.0, 1.0, COL_GOLD)
+end)
+
+at(T.divider, function()
+	divTop.open(0.8)
+	divBot.open(0.8)
+	flare(0.5, 0.9)
+end)
+
+at(T.letters, function()
+	tw(container, 1.5, { Size = UDim2.fromScale(TITLE_W_END, 0.15) }, EXPO)
+end)
+
+for i = 1, n do
+	local L = letters[i]
+	at(T.letters + (i - 1) * T.step, function()
+		tw(L.scale, 0.7, { Scale = 1 }, EXPO)
+		tw(L.box, 0.7, { Rotation = 0 }, EXPO)
+		tw(L.main, 0.3, { TextTransparency = 0 })
+		tw(L.shadow, 0.4, { TextTransparency = 0.6 })
+		dustBurst(letterX(i), 0.52, 3, COL_GOLD_L, 45)
+		pillar(letterX(i))
+	end)
+end
+
+at(T.letters + n * T.step + 0.35, function()
+	doFlash(0.9, 0.6, COL_GOLD)
+	ringPulse(0.5, 0.5, 1.5, 0.9, COL_GOLD_L)
+	task.delay(0.12, function() ringPulse(0.5, 0.5, 1.1, 0.8, COL_GOLD) end)
+	flare(0.5, 0.7)
+	rays(0.5, 0.5, 10, 120, COL_GOLD_L)
+	kick = kick + 30
+	shake(5, 0.3)
+	setp(stageScale, { Scale = 1.035 })
+	tw(stageScale, 0.7, { Scale = 1 }, EXPO)
+	shineSweep()
+	floatOn = true
+end)
+
+at(0.3, function()
+	tw(progTrack, 0.5, { BackgroundTransparency = 0.6 })
+	tw(progFill, T.outro - 0.3, { Size = UDim2.new(1, 0, 1, 0) }, Enum.EasingStyle.Linear)
+end)
+
+table.sort(events, function(a, b) return a.t < b.t end)
+
+local function waitUntil(tt)
+	while now() < tt do
+		task.wait()
+	end
+end
+
+local function outro()
+	alive = false
+	floatOn = false
+	local d = 0.7
+
+	tw(compassCG, d, { GroupTransparency = 1 })
+	tw(holder, d + 0.3, { Size = UDim2.fromScale(1.4, 1.4) }, QUINT)
+	tw(glowA, d, { BackgroundTransparency = 1 })
+	for _, L in ipairs(letters) do
+		tw(L.main, d, { TextTransparency = 1 })
+		tw(L.shadow, d, { TextTransparency = 1 })
+		tw(L.shine, d, { TextTransparency = 1 })
+	end
+	divTop.close(d)
+	divBot.close(d)
+	tw(progTrack, d, { BackgroundTransparency = 1 })
+	tw(progFill, d, { BackgroundTransparency = 1 })
+	tw(world, d, { GroupTransparency = 1 })
+	tw(bgFrame, d, { BackgroundTransparency = 1 })
+	tw(flash, d, { BackgroundTransparency = 1 })
+
+	task.wait(d + 0.1)
+
+	bgConn:Disconnect()
+	gui:Destroy()
+end
+
+for _, e in ipairs(events) do
+	waitUntil(e.t)
+	local ok, err = pcall(e.fn)
+	if not ok then warn("[NexvyrIntro] " .. tostring(err)) end
+end
+waitUntil(T.outro)
+outro()
+end
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -1573,8 +2189,6 @@ end
 function KillAll:IsFallingIntoVoid(myRoot)
     if not self.safePosition or not myRoot then return false end
     local limit = self.safePosition.Y - KILLALL_VOID_PROTECTION
-    -- si el enemigo esta en un nivel mas bajo, el limite baja con el piso del enemigo
-    -- (antes te devolvia a la posicion segura y por eso te frenaba antes de llegar)
     if self.targetFloorY and self.lastFloorTarget and self.lastFloorTarget.Parent then
         limit = math.min(limit, self.targetFloorY - KILLALL_UNDERGROUND_DEPTH - KILLALL_VOID_PROTECTION)
     end
@@ -1694,7 +2308,6 @@ function KillAll:ApproachTarget(myRoot, targetRoot, dt)
                 myRoot.AssemblyLinearVelocity = Vector3.zero
                 myRoot.AssemblyAngularVelocity = Vector3.zero
             end)
-            -- si el servidor no valida a tiempo, ya no te quedas congelado: pasa a pegarse igual
             local validated = self:CheckServerValidation(myRoot)
             if validated or (nowT - self.triggerStart) >= KILLALL_TRIGGER_TIMEOUT then
                 self.killActivated = true
@@ -1765,7 +2378,6 @@ function KillAll:StickToTarget(myRoot, targetRoot, dt)
     end
     if onGround or not self.targetFloor then self.targetFloor = self:GetFloorY(targetRoot) end
     local myPos = myRoot.Position
-    -- posicion estable: justo debajo del enemigo, ligeramente detras de el
     local vel = targetRoot.AssemblyLinearVelocity
     local predX = targetPos.X + vel.X * KILLALL_PREDICT_TIME
     local predZ = targetPos.Z + vel.Z * KILLALL_PREDICT_TIME
@@ -1781,7 +2393,6 @@ function KillAll:StickToTarget(myRoot, targetRoot, dt)
         y = self.targetFloor - KILLALL_HEIGHT_OFFSET
         if inRange then self.forceDescent = false end
     end
-    -- nunca quedar por encima del piso del enemigo menos el offset (evita quedar expuesto)
     local maxY = self.targetFloor - KILLALL_HEIGHT_OFFSET
     if y > maxY then y = maxY end
     local alpha = math.clamp(dt * KILLALL_STICK_LERP_SPEED, 0, 1)
@@ -3526,7 +4137,6 @@ local function GetKillSoundIdByName(soundName)
     return KillSounds[1].Id
 end
 
--- Precarga el sonido elegido para que no haya retraso al reproducirlo
 local function PreloadKillSound()
     task.spawn(function()
         pcall(function()
@@ -3552,8 +4162,6 @@ local lastPrimaryKillTime = 0
 local KILL_SOUND_COOLDOWN = 0.08
 local KILL_SOUND_PRIMARY_COOLDOWN = 0.3
 local KILL_SOUND_FALLBACK_WINDOW = 4
--- primary = evento inmediato del juego (RE/Combat/Killed). Los demas metodos (stats, Died)
--- llegan tarde, asi que solo suenan si no sono ya uno reciente (evita sonido doble).
 local function TryPlayKillSound(primary)
     if not KillSoundEnabled then return end
     local now = tick()
@@ -3648,7 +4256,6 @@ local function HookKillPlayer(other)
     end))
 end
 
--- Evento inmediato del juego: avisa al instante cuando alguien mata a alguien
 local function nexvyrHookKilledRemote()
     nexvyrKillRemoteSession += 1
     local session = nexvyrKillRemoteSession
@@ -4844,8 +5451,6 @@ local function listarEmotes()
     return names
 end
 
--- Detiene el emote en curso: para todas las animaciones que no sean las base del
--- personaje (Animate) ni las de las herramientas, y reinicia Animate para volver al idle.
 local function detenerEmote()
     local char = player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
