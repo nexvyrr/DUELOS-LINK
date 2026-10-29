@@ -511,7 +511,6 @@ task.spawn(function()
 	end
 end)
 
--- La intro ya NO se puede saltar tocando la pantalla, el mouse ni el teclado.
 
 local events = {}
 local function at(t, fn) events[#events + 1] = { t = t, fn = fn } end
@@ -784,7 +783,23 @@ else
     return
 end
 
+pcall(function()
+    WindUI:AddTheme({
+        Name = "Crimson",
+        Accent = Color3.fromHex("#DC143C"),
+        Dialog = Color3.fromHex("#1a0a0e"),
+        Outline = Color3.fromHex("#DC143C"),
+        Text = Color3.fromHex("#FFFFFF"),
+        Placeholder = Color3.fromHex("#8a6a70"),
+        Background = Color3.fromHex("#120709"),
+        Button = Color3.fromHex("#8B0A1E"),
+        Icon = Color3.fromHex("#ff8fa3"),
+    })
+end)
+pcall(function() WindUI:SetTheme("Crimson") end)
+
 local Window = WindUI:CreateWindow({
+    Theme = "Crimson",
     Title = "NEXVYRHUB | DUELS <font color='#FFD700'>[v3.2] </font>",
     Author = "By 7.dui🇲🇽",
     Folder = "Nexvyr_WindUI",
@@ -793,8 +808,8 @@ local Window = WindUI:CreateWindow({
     NewElements = true,
     HideSearchBar = false,
     ToggleKey = Enum.KeyCode.F15,
-    Background = "rbxthumb://type=Asset&id=9405835683&w=420&h=420",
-    BackgroundImageTransparency = 0.35,
+    Background = "rbxthumb://type=Asset&id=140316387608545&w=420&h=420",
+    BackgroundImageTransparency = 0.8,
     OpenButton = {
         Title = "Open HUB",
         Icon = "rbxthumb://type=Asset&id=118232139384203&w=420&h=420",
@@ -804,7 +819,7 @@ local Window = WindUI:CreateWindow({
         Enabled = true,
         Draggable = true,
         Scale = 0.9,
-        Color = ColorSequence.new(Color3.fromHex("#110070"), Color3.fromHex("#300364"))
+        Color = ColorSequence.new(Color3.fromHex("#DC143C"), Color3.fromHex("#8B0A1E"))
     },
     Topbar = { Height = 44, ButtonsType = "Default" }
 })
@@ -819,7 +834,7 @@ local Tabs = {
     Informaciones = NovedadSection:Tab({ Title = "informaciónes", Icon = "solar:info-circle-bold" }),
     ExtrasScripts = ExtrasScriptsSection:Tab({ Title = "Extras scripts", Icon = "solar:code-square-bold" }),
     Graficos = ExtrasScriptsSection:Tab({ Title = "Gráficos", Icon = "solar:palette-bold" }),
-    Botones = PrincipalesSection:Tab({ Title = "Botones", Icon = "solar:gamepad-bold" }),
+    Botones = ExtrasScriptsSection:Tab({ Title = "Botones", Icon = "solar:gamepad-bold" }),
     Inicio = PrincipalesSection:Tab({ Title = "Inició", Icon = "solar:home-2-bold" }),
     Aim = PrincipalesSection:Tab({ Title = "Aimbot", Icon = "solar:target-bold" }),
     Vis = PrincipalesSection:Tab({ Title = "Visual", Icon = "solar:eye-bold" }),
@@ -926,6 +941,75 @@ do
             if count then lastCount = count end
             render(lastCount)
             task.wait(REFRESH_SECONDS)
+        end
+    end)
+end
+
+do
+    local Stats = game:GetService("Stats")
+    local PING_REFRESH_SECONDS = 2
+    local PING_ICON = "solar:wi-fi-router-bold"
+
+    local levels = {
+        { Max = 80,        Color = "#30ff6a" },
+        { Max = 150,       Color = "#ffd23f" },
+        { Max = 250,       Color = "#ff9f1c" },
+        { Max = math.huge, Color = "#ff3b3b" },
+    }
+
+    local pingTag
+    local currentLevel
+
+    local function readPing()
+        local value
+        pcall(function()
+            local network = Stats:FindFirstChild("Network")
+            local items = network and network:FindFirstChild("ServerStatsItem")
+            local item = items and items:FindFirstChild("Data Ping")
+            if item then value = item:GetValue() end
+        end)
+        if type(value) ~= "number" then
+            pcall(function() value = player:GetNetworkPing() * 1000 end)
+        end
+        if type(value) ~= "number" then return nil end
+        return math.max(0, math.floor(value + 0.5))
+    end
+
+    local function levelFor(ms)
+        for index, level in ipairs(levels) do
+            if ms <= level.Max then return index end
+        end
+        return #levels
+    end
+
+    local function applyPing(levelIndex, text)
+        local level = levels[levelIndex]
+        if not pingTag then
+            local okTag, tag = pcall(function()
+                return Window:Tag({
+                    Title = text,
+                    Icon = PING_ICON,
+                    Color = Color3.fromHex(level.Color),
+                })
+            end)
+            if okTag then pingTag = tag end
+            currentLevel = levelIndex
+            return
+        end
+        pcall(function() pingTag:SetTitle(text) end)
+        if currentLevel ~= levelIndex then
+            currentLevel = levelIndex
+            pcall(function() pingTag:SetColor(Color3.fromHex(level.Color)) end)
+        end
+    end
+
+    task.spawn(function()
+        while true do
+            local ms = readPing()
+            if ms then
+                applyPing(levelFor(ms), tostring(ms) .. " ms")
+            end
+            task.wait(PING_REFRESH_SECONDS)
         end
     end)
 end
@@ -2851,11 +2935,10 @@ Tabs.ExtrasScripts:Button({
 
 task.wait()
 
--- Pestaña Inició (sin títulos): datos del jugador arriba, imagen con marco, texto y botón que copia el link
 do
     local DISCORD_LINK = "https://discord.gg/xw3Rr2W7v"
     local IMAGE_ID = 114452675067716
-    local THUMB_SIZE = 170
+    local THUMB_SIZE = 110
     local ContentProvider = game:GetService("ContentProvider")
 
     local function new(class, props, parent)
@@ -2873,22 +2956,100 @@ do
         return string.format("%dh %02dm %02ds", h, m, s)
     end
 
-    Tabs.Inicio:Paragraph({
-        Title = "Nombre",
-        Desc = player.DisplayName,
-        Icon = "solar:user-bold",
+    local executorName = "Desconocido"
+    pcall(function()
+        local identify = identifyexecutor or getexecutorname
+        if identify then
+            local name, version = identify()
+            if name then
+                executorName = tostring(name) .. (version and (" " .. tostring(version)) or "")
+            end
+        end
+    end)
+
+    local profilePara = Tabs.Inicio:Paragraph({
+        Title = player.DisplayName,
+        Desc = "@" .. player.Name,
+        Thumbnail = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=150&h=150",
+        ThumbnailSize = 70,
     })
 
-    Tabs.Inicio:Paragraph({
-        Title = "Usuario",
-        Desc = "@" .. player.Name,
-        Icon = "solar:user-id-bold",
-    })
+    task.spawn(function()
+        task.wait(0.4)
+        local host
+        for _, h in ipairs({
+            profilePara and profilePara.ElementFrame,
+            profilePara and profilePara.Frame,
+            profilePara and profilePara.UIElements and profilePara.UIElements.Main,
+            profilePara and profilePara.UIElements and profilePara.UIElements.Container,
+        }) do
+            if typeof(h) == "Instance" and h:IsA("GuiObject") then host = h break end
+        end
+        local parent = host and host.Parent
+        if not parent then return end
+
+        local card = new("Frame", {
+            Name = "NexvyrPerfil",
+            Size = UDim2.new(1, 0, 0, 88),
+            BackgroundColor3 = Color3.fromRGB(26, 12, 16),
+            BackgroundTransparency = 0.25,
+            BorderSizePixel = 0,
+            LayoutOrder = -1000,
+        }, parent)
+        new("UICorner", { CornerRadius = UDim.new(0, 14) }, card)
+        new("UIStroke", { Color = Color3.fromHex("#DC143C"), Transparency = 0.65, Thickness = 1 }, card)
+
+        local avatar = new("ImageLabel", {
+            AnchorPoint = Vector2.new(0, 0.5),
+            Position = UDim2.new(0, 14, 0.5, 0),
+            Size = UDim2.fromOffset(64, 64),
+            BackgroundColor3 = Color3.fromRGB(20, 20, 24),
+            BorderSizePixel = 0,
+            Image = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=150&h=150",
+            ScaleType = Enum.ScaleType.Crop,
+        }, card)
+        new("UICorner", { CornerRadius = UDim.new(1, 0) }, avatar)
+        new("UIStroke", { Color = Color3.fromHex("#DC143C"), Thickness = 2 }, avatar)
+
+        new("TextLabel", {
+            AnchorPoint = Vector2.new(0, 1),
+            Position = UDim2.new(0, 92, 0.5, 1),
+            Size = UDim2.new(1, -106, 0, 26),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.GothamBold,
+            Text = player.DisplayName,
+            TextColor3 = Color3.new(1, 1, 1),
+            TextSize = 18,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+        }, card)
+
+        new("TextLabel", {
+            AnchorPoint = Vector2.new(0, 0),
+            Position = UDim2.new(0, 92, 0.5, 3),
+            Size = UDim2.new(1, -106, 0, 22),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.Gotham,
+            Text = "@" .. player.Name,
+            TextColor3 = Color3.fromRGB(255, 143, 163),
+            TextSize = 14,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+        }, card)
+
+        host.Visible = false
+    end)
 
     local timePara = Tabs.Inicio:Paragraph({
         Title = "Tiempo usando el script",
         Desc = formatUseTime(Persist.Total()),
         Icon = "solar:clock-circle-bold",
+    })
+
+    Tabs.Inicio:Paragraph({
+        Title = "Ejecutor",
+        Desc = executorName,
+        Icon = "solar:settings-bold",
     })
 
     task.spawn(function()
@@ -2914,7 +3075,6 @@ do
         ThumbnailSize = THUMB_SIZE,
     })
 
-    -- Busca una URL de imagen que realmente cargue (miniatura, asset directo o Decal -> Texture)
     local function resolveImage()
         for _, url in ipairs(candidates) do
             local probe = Instance.new("ImageLabel")
@@ -2958,7 +3118,6 @@ do
         local url = resolveImage()
         local host = findHost()
 
-        -- 1) Reaprovechar el ImageLabel de miniatura que WindUI creó dentro del párrafo
         if host then
             local best
             for _, d in ipairs(host:GetDescendants()) do
@@ -2980,7 +3139,6 @@ do
             end
         end
 
-        -- 2) Si no existe, crear un cuadrado propio con la imagen justo encima del párrafo
         local parent = host and host.Parent
         if parent then
             local box = new("Frame", {
@@ -3860,9 +4018,9 @@ local function flyMoveVector()
     return Vector3.new(k(Enum.KeyCode.D) - k(Enum.KeyCode.A), 0, k(Enum.KeyCode.S) - k(Enum.KeyCode.W))
 end
 
-local FLY_PITCH_DEAD = math.rad(15)   -- zona muerta: con la cámara inclinada hasta ~15° vuelas recto (pon 0 para seguir la cámara exacta)
-local FLY_LEAN = 35                  -- grados extra que se inclina hacia adelante/atrás al moverte (se suma al ángulo de la cámara)
-local FLY_ROLL = 25                  -- grados que se ladea al moverte de lado
+local FLY_PITCH_DEAD = math.rad(15)
+local FLY_LEAN = 35
+local FLY_ROLL = 25
 local flyPos, flyRoot
 local flyAutoRotate
 
@@ -3884,19 +4042,16 @@ local function SetFly(state)
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-    -- Heartbeat = después de la física: la posición propia manda y se corrige la caída por gravedad
     flyConn = RunService.Heartbeat:Connect(function(dt)
         local hum, root = getChar()
         local cam = workspace.CurrentCamera
         if not hum or not root or not cam or hum.Health <= 0 then return end
 
-        -- sin PlatformStand: el personaje queda en estado de vuelo/caída y se anima (no tieso)
         if flyAutoRotate == nil then flyAutoRotate = hum.AutoRotate end
         hum.PlatformStand = false
         hum.AutoRotate = false
         hum:ChangeState(Enum.HumanoidStateType.Freefall)
 
-        -- (re)sincronizar si es un personaje nuevo o si el juego nos teletransportó
         if root ~= flyRoot or not flyPos or (root.Position - flyPos).Magnitude > 10 then
             flyRoot = root
             flyPos = root.Position
@@ -3907,7 +4062,6 @@ local function SetFly(state)
         local cf = cam.CFrame
         local look = cf.LookVector
 
-        -- inclinación de cámara con zona muerta (la cámara normal mira un poco hacia abajo)
         local pitch = math.asin(math.clamp(look.Y, -1, 1))
         local adj = 0
         if pitch > FLY_PITCH_DEAD then adj = pitch - FLY_PITCH_DEAD
@@ -3935,7 +4089,6 @@ local function SetFly(state)
 
         local newPos = flyPos + flyVel * dt
 
-        -- no atravesar el piso al bajar
         if flyVel.Y < 0 then
             rayParams.FilterDescendantsInstances = { root.Parent }
             local feet = hum.HipHeight + root.Size.Y / 2
@@ -3948,7 +4101,6 @@ local function SetFly(state)
 
         flyPos = newPos
 
-        -- el personaje sigue a la cámara (giro + inclinación) como el fly normal, y se inclina más al moverse
         local yawRot = CFrame.lookAt(Vector3.zero, flat).Rotation
         local lv = yawRot:VectorToObjectSpace(flyVel)
         local ref = math.max(FLY_SPEED, 1)
@@ -5991,7 +6143,6 @@ local function ApplyElFinal(state)
             return inst
         end
 
-        -- Color: contraste fuerte, tono cálido y sombras frías (look anime oscuro/dramático)
         local cc = Instance.new("ColorCorrectionEffect")
         cc.Name = "EF_CC"
         cc.Brightness = -0.01
@@ -6000,7 +6151,6 @@ local function ApplyElFinal(state)
         cc.TintColor = Color3.fromRGB(255, 238, 220)
         add(cc)
 
-        -- Brillo dorado en el sol y las luces fuertes
         local bloom = Instance.new("BloomEffect")
         bloom.Name = "EF_Bloom"
         bloom.Intensity = 0.55
@@ -6008,14 +6158,12 @@ local function ApplyElFinal(state)
         bloom.Threshold = 0.9
         add(bloom)
 
-        -- Rayos de luz entre las nubes
         local rays = Instance.new("SunRaysEffect")
         rays.Name = "EF_Rays"
         rays.Intensity = 0.3
         rays.Spread = 1
         add(rays)
 
-        -- Cielo con sol grande y estrellas
         local sky = Instance.new("Sky")
         sky.Name = "EF_Sky"
         sky.SunAngularSize = 24
@@ -6024,7 +6172,6 @@ local function ApplyElFinal(state)
         sky.CelestialBodiesShown = true
         add(sky)
 
-        -- Neblina dorada iluminada por el sol
         local atmo = Instance.new("Atmosphere")
         atmo.Name = "EF_Atmo"
         atmo.Density = 0.32
@@ -6035,7 +6182,6 @@ local function ApplyElFinal(state)
         atmo.Haze = 1.9
         add(atmo)
 
-        -- Nubes oscuras y densas
         if terrain then
             local clouds = terrain:FindFirstChildOfClass("Clouds")
             if clouds then
@@ -6065,10 +6211,8 @@ local function ApplyElFinal(state)
         Lighting.EnvironmentDiffuseScale = 0.9
         Lighting.EnvironmentSpecularScale = 1
 
-        -- Sombras HD y nítidas (sin desenfoque)
         pcall(function() Lighting.ShadowSoftness = 0.03 end)
 
-        -- Iluminación Future (sombras y reflejos más detallados) si el executor lo permite
         pcall(function()
             if gethiddenproperty and sethiddenproperty then
                 if elFinalTech == nil then elFinalTech = gethiddenproperty(Lighting, "Technology") end
@@ -6076,7 +6220,6 @@ local function ApplyElFinal(state)
             end
         end)
 
-        -- Calidad gráfica al máximo
         pcall(function()
             local r = settings().Rendering
             if elFinalQuality == nil then elFinalQuality = r.QualityLevel end
@@ -6140,7 +6283,6 @@ local function ApplySkype(state)
         end
         ClearEffects(skypeEffects)
 
-        -- Si el juego ya trae su propio Sky/Atmosphere, se guardan aparte para que el nuestro sí se vea
         table.clear(skypeStash)
         for _, child in ipairs(Lighting:GetChildren()) do
             if child:IsA("Sky") or child:IsA("Atmosphere") then
@@ -6157,7 +6299,6 @@ local function ApplySkype(state)
             return inst
         end
 
-        -- Cielo hermoso: sol grande, luna y estrellas
         local sky = Instance.new("Sky")
         sky.Name = "SK_Sky"
         sky.SunAngularSize = 21
@@ -6166,7 +6307,6 @@ local function ApplySkype(state)
         sky.CelestialBodiesShown = true
         add(sky)
 
-        -- Neblina / atmósfera con profundidad y brillo del sol
         local atmo = Instance.new("Atmosphere")
         atmo.Name = "SK_Atmo"
         atmo.Density = 0.34
@@ -6177,7 +6317,6 @@ local function ApplySkype(state)
         atmo.Haze = 1.8
         add(atmo)
 
-        -- Color vivo estilo PC
         local cc = Instance.new("ColorCorrectionEffect")
         cc.Name = "SK_CC"
         cc.Brightness = 0
@@ -6186,7 +6325,6 @@ local function ApplySkype(state)
         cc.TintColor = Color3.fromRGB(255, 249, 242)
         add(cc)
 
-        -- Brillo en luces fuertes y reflejos
         local bloom = Instance.new("BloomEffect")
         bloom.Name = "SK_Bloom"
         bloom.Intensity = 0.45
@@ -6194,14 +6332,12 @@ local function ApplySkype(state)
         bloom.Threshold = 0.95
         add(bloom)
 
-        -- Rayos de sol
         local rays = Instance.new("SunRaysEffect")
         rays.Name = "SK_Rays"
         rays.Intensity = 0.2
         rays.Spread = 0.85
         add(rays)
 
-        -- Profundidad de campo suave: solo desenfoca la lejanía, lo cercano queda nítido
         local dof = Instance.new("DepthOfFieldEffect")
         dof.Name = "SK_DOF"
         dof.FarIntensity = 0.12
@@ -6210,7 +6346,6 @@ local function ApplySkype(state)
         dof.InFocusRadius = 90
         add(dof)
 
-        -- Nubes
         if terrain then
             local clouds = terrain:FindFirstChildOfClass("Clouds")
             if clouds then
@@ -6225,7 +6360,6 @@ local function ApplySkype(state)
             clouds.Density = 0.65
             clouds.Color = Color3.fromRGB(255, 255, 255)
 
-            -- Agua con reflejos y olas (si el mapa tiene agua)
             if not skypeWater then
                 skypeWater = {
                     WaterColor = terrain.WaterColor,
@@ -6258,10 +6392,8 @@ local function ApplySkype(state)
         Lighting.EnvironmentDiffuseScale = 1
         Lighting.EnvironmentSpecularScale = 1
 
-        -- Sombras completas y definidas
         pcall(function() Lighting.ShadowSoftness = 0.12 end)
 
-        -- Iluminación Future (máximo detalle de sombras y reflejos) si el executor lo permite
         pcall(function()
             if gethiddenproperty and sethiddenproperty then
                 if skypeTech == nil then skypeTech = gethiddenproperty(Lighting, "Technology") end
@@ -6269,7 +6401,6 @@ local function ApplySkype(state)
             end
         end)
 
-        -- Calidad gráfica al máximo
         pcall(function()
             local r = settings().Rendering
             if skypeQuality == nil then skypeQuality = r.QualityLevel end
@@ -6278,7 +6409,6 @@ local function ApplySkype(state)
     else
         ClearEffects(skypeEffects)
 
-        -- Devolver el Sky/Atmosphere original del juego
         for _, inst in ipairs(skypeStash) do
             pcall(function() inst.Parent = Lighting end)
         end
