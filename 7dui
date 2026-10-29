@@ -838,23 +838,133 @@ local Tabs = {
 do
     local GREEN = "#3DDC57"
     local YELLOW = "#FFD700"
+    local WHITE = "#FFFFFF"
+    local PINK = "#FF8FD0"
     local lines = {
         { "+Autoload", GREEN },
         { "+Nuevos visuales", GREEN },
         { "+nueva API script protección", GREEN },
+        { "+Notificaciones en tiempo real", GREEN },
         { "+Kill All [Beta v2]", YELLOW },
     }
-    Tabs.Informaciones:Section({ Title = "Nuevas cosas agregadas", Icon = "solar:info-circle-bold" })
+    local rendered = {}
     for _, line in ipairs(lines) do
-        local para = Tabs.Informaciones:Paragraph({
-            Title = string.format("<font color='%s'>%s</font>", line[2], line[1]),
-        })
-        pcall(function()
-            for _, d in ipairs(para.ElementFrame:GetDescendants()) do
-                if d:IsA("TextLabel") then d.RichText = true end
-            end
-        end)
+        rendered[#rendered + 1] = string.format("<font color='%s'>%s</font>", line[2], line[1])
     end
+    rendered[#rendered + 1] = ""
+    rendered[#rendered + 1] = string.format(
+        "<font color='%s'>No se preocupen cuando aparezca una notificación de obscura, es totalmente normal y forma parte de </font><font color='%s'>Open HUB</font>",
+        WHITE, PINK
+    )
+    Tabs.Informaciones:Section({ Title = "Nuevas cosas agregadas", Icon = "solar:info-circle-bold" })
+    local para = Tabs.Informaciones:Paragraph({
+        Title = table.concat(rendered, "\n"),
+    })
+    pcall(function()
+        for _, d in ipairs(para.ElementFrame:GetDescendants()) do
+            if d:IsA("TextLabel") then d.RichText = true end
+        end
+    end)
+    pcall(function() Tabs.Informaciones:Select() end)
+end
+
+do
+    local ACTIVE_ENDPOINTS = {
+        "https://obscuravm.com/api/stats",
+        "https://obscuravm.com/api/public/stats",
+        "https://obscuravm.com/api/v1/public/stats",
+        "https://obscuravm.com/api/live",
+        "https://obscuravm.com/api/online",
+        "https://obscuravm.com/api/stats/live",
+    }
+    local ACTIVE_KEYS = {
+        "active_users", "activeusers", "online_users", "onlineusers", "users_online",
+        "usersonline", "active", "online", "live_users", "liveusers", "concurrent", "live",
+        "total_users", "totalusers", "users",
+    }
+    local REFRESH_SECONDS = 15
+    local activeTag
+    local lastCount
+
+    local function httpGet(url)
+        local req = (syn and syn.request) or http_request or request or (fluxus and fluxus.request)
+        if req then
+            local okReq, res = pcall(req, { Url = url, Method = "GET", Headers = { ["Accept"] = "application/json" } })
+            if okReq and type(res) == "table" and res.StatusCode == 200 and type(res.Body) == "string" then
+                return res.Body
+            end
+            return nil
+        end
+        local okGet, body = pcall(function() return game:HttpGet(url) end)
+        if okGet and type(body) == "string" then return body end
+        return nil
+    end
+
+    local function findCount(node, depth)
+        if type(node) ~= "table" or depth > 4 then return nil end
+        local lowered = {}
+        for k, v in pairs(node) do
+            if type(k) == "string" then lowered[string.lower(k)] = v end
+        end
+        for _, wanted in ipairs(ACTIVE_KEYS) do
+            local v = lowered[wanted]
+            if type(v) == "number" then return math.floor(v) end
+            if type(v) == "string" and tonumber((v:gsub("[,%s]", ""))) then
+                return math.floor(tonumber((v:gsub("[,%s]", ""))))
+            end
+        end
+        for _, v in pairs(node) do
+            if type(v) == "table" then
+                local found = findCount(v, depth + 1)
+                if found then return found end
+            end
+        end
+        return nil
+    end
+
+    local function fetchActive()
+        for _, url in ipairs(ACTIVE_ENDPOINTS) do
+            local body = httpGet(url)
+            if body then
+                local okDecode, data = pcall(function() return HttpService:JSONDecode(body) end)
+                if okDecode and type(data) == "table" then
+                    local count = findCount(data, 0)
+                    if count then return count end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function formatCount(n)
+        local s = tostring(n)
+        local formatted = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+        return (formatted:gsub("^,", ""))
+    end
+
+    local okTag, tag = pcall(function()
+        return Window:Tag({
+            Title = "--",
+            Icon = "solar:user-bold",
+            Color = Color3.fromHex("#30ff6a"),
+        })
+    end)
+    if okTag then activeTag = tag end
+
+    local function render(count)
+        if not activeTag then return end
+        local text = count and formatCount(count) or "--"
+        pcall(function() activeTag:SetTitle(text) end)
+    end
+
+    task.spawn(function()
+        while true do
+            local count = fetchActive()
+            if count then lastCount = count end
+            render(lastCount)
+            task.wait(REFRESH_SECONDS)
+        end
+    end)
 end
 
 local isEnemy, estaEnLobby, IsInMatchStrict
