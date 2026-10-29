@@ -869,20 +869,8 @@ do
 end
 
 do
-    local ACTIVE_ENDPOINTS = {
-        "https://obscuravm.com/api/stats",
-        "https://obscuravm.com/api/public/stats",
-        "https://obscuravm.com/api/v1/public/stats",
-        "https://obscuravm.com/api/live",
-        "https://obscuravm.com/api/online",
-        "https://obscuravm.com/api/stats/live",
-    }
-    local ACTIVE_KEYS = {
-        "active_users", "activeusers", "online_users", "onlineusers", "users_online",
-        "usersonline", "active", "online", "live_users", "liveusers", "concurrent", "live",
-        "total_users", "totalusers", "users",
-    }
-    local REFRESH_SECONDS = 15
+    local WORKER_URL = "https://usuarios-activos.theluxzgod.workers.dev"
+    local REFRESH_SECONDS = 45
     local activeTag
     local lastCount
 
@@ -900,38 +888,13 @@ do
         return nil
     end
 
-    local function findCount(node, depth)
-        if type(node) ~= "table" or depth > 4 then return nil end
-        local lowered = {}
-        for k, v in pairs(node) do
-            if type(k) == "string" then lowered[string.lower(k)] = v end
-        end
-        for _, wanted in ipairs(ACTIVE_KEYS) do
-            local v = lowered[wanted]
-            if type(v) == "number" then return math.floor(v) end
-            if type(v) == "string" and tonumber((v:gsub("[,%s]", ""))) then
-                return math.floor(tonumber((v:gsub("[,%s]", ""))))
-            end
-        end
-        for _, v in pairs(node) do
-            if type(v) == "table" then
-                local found = findCount(v, depth + 1)
-                if found then return found end
-            end
-        end
-        return nil
-    end
-
     local function fetchActive()
-        for _, url in ipairs(ACTIVE_ENDPOINTS) do
-            local body = httpGet(url)
-            if body then
-                local okDecode, data = pcall(function() return HttpService:JSONDecode(body) end)
-                if okDecode and type(data) == "table" then
-                    local count = findCount(data, 0)
-                    if count then return count end
-                end
-            end
+        local url = WORKER_URL .. "/ping?id=" .. tostring(player.UserId)
+        local body = httpGet(url)
+        if not body then return nil end
+        local okDecode, data = pcall(function() return HttpService:JSONDecode(body) end)
+        if okDecode and type(data) == "table" and type(data.active) == "number" then
+            return math.floor(data.active)
         end
         return nil
     end
