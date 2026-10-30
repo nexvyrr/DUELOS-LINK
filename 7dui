@@ -252,12 +252,13 @@ do local __nx_ok, __nx_err = pcall(function()
     local YELLOW = "#FFD700"
     local WHITE = "#FFFFFF"
     local PINK = "#FF8FD0"
+    local RED = "#FF3B30"
     local lines = {
-        { "+Autoload", GREEN },
         { "+Nuevos visuales", GREEN },
         { "+nueva API script protección", GREEN },
         { "+Notificaciones en tiempo real", GREEN },
         { "+Kill All [Beta v2]", YELLOW },
+        { "-Música, ping, activos, auto guardado eliminados.", RED },
     }
     local rendered = {}
     for _, line in ipairs(lines) do
@@ -4498,35 +4499,3 @@ do local __nx_ok, __nx_err = pcall(function()
         end)
     end)
 end) if not __nx_ok then warn("[NexvyrHub] Error en el modulo 'Tecla de ventana': " .. tostring(__nx_err)) end end
-
-do local __nx_ok, __nx_err = pcall(function()
-    task.spawn(function()
-        task.wait(0.3)
-        local data = Persist.Data
-        Persist.Loading = true
-        if type(data) == "table" and type(data.Values) == "table" then
-            local applied = 0
-            for _, key in ipairs(Persist.Order) do
-                local item = Persist.Items[key]
-                local value = data.Values[key]
-                if item and value ~= nil then
-                    pcall(item.Set, value)
-                    applied += 1
-                    if applied % 6 == 0 then RunService.Heartbeat:Wait() end
-                end
-            end
-        end
-        Persist.Loading = false
-        Persist.Ready = true
-        Persist.Save()
-        task.spawn(function()
-            while true do
-                task.wait(5)
-                Persist.Save()
-            end
-        end)
-        Players.PlayerRemoving:Connect(function(p)
-            if p == player then Persist.Save() end
-        end)
-    end)
-end) if not __nx_ok then warn("[NexvyrHub] Error en el modulo 'Autoload': " .. tostring(__nx_err)) end end
