@@ -1,4 +1,4 @@
-do
+do local __nx_ok, __nx_err = pcall(function()
 local Players          = game:GetService("Players")
 local TweenService     = game:GetService("TweenService")
 local RunService       = game:GetService("RunService")
@@ -612,7 +612,7 @@ for _, e in ipairs(events) do
 end
 waitUntil(T.outro)
 outro()
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 1/19, línea 1, intro: " .. tostring(__nx_err)) end end
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -844,7 +844,7 @@ local Tabs = {
     Identidad = ConfigSection:Tab({ Title = "Identidad", Icon = "solar:user-id-bold" })
 }
 
-do
+do local __nx_ok, __nx_err = pcall(function()
     local GREEN = "#3DDC57"
     local YELLOW = "#FFD700"
     local WHITE = "#FFFFFF"
@@ -875,9 +875,9 @@ do
         end
     end)
     pcall(function() Tabs.Informaciones:Select() end)
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 2/19, línea 847, Información: " .. tostring(__nx_err)) end end
 
-do
+do local __nx_ok, __nx_err = pcall(function()
     local WORKER_URL = "https://usuarios-activos.theluxzgod.workers.dev"
     local REFRESH_SECONDS = 45
     local activeTag
@@ -937,9 +937,9 @@ do
             task.wait(REFRESH_SECONDS)
         end
     end)
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 3/19, línea 880: " .. tostring(__nx_err)) end end
 
-do
+do local __nx_ok, __nx_err = pcall(function()
     local Stats = game:GetService("Stats")
     local PING_REFRESH_SECONDS = 2
     local PING_ICON = "solar:wi-fi-router-bold"
@@ -1006,11 +1006,11 @@ do
             task.wait(PING_REFRESH_SECONDS)
         end
     end)
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 4/19, línea 942: " .. tostring(__nx_err)) end end
 
 local isEnemy, estaEnLobby, IsInMatchStrict
 local esEnemigoValido, esCuchillo, esPistola, obtenerPistola
-do
+do local __nx_ok, __nx_err = pcall(function()
 local playerGui = player:WaitForChild("PlayerGui")
 local dmvsInvalidateRedirectSelection
 local dmvsClearTargetParts
@@ -1350,7 +1350,7 @@ obtenerPistola = function()
     end
     return nil
 end
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 5/19, línea 1013: " .. tostring(__nx_err)) end end
 
 local function estaRecargando(arma)
     if not arma or not arma:IsA("Tool") then return false end
@@ -1406,7 +1406,7 @@ local function limpiarHitboxes()
     end
 end
 
-do
+do local __nx_ok, __nx_err = pcall(function()
 local nexvyrHitboxWorkerRunning = false
 nexvyrStartHitboxWorker = function()
     if nexvyrHitboxWorkerRunning or not hitboxEnabled then return end
@@ -1465,7 +1465,7 @@ nexvyrStartHitboxWorker = function()
     if not hitboxEnabled then limpiarHitboxes() end
     end)
 end
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 6/19, línea 1409: " .. tostring(__nx_err)) end end
 
 local PadZoneConfig = {
     ["Right Platforms"] = {
@@ -1726,7 +1726,7 @@ local function IsRoundTimerActive()
     return txt:match("^%d+:%d%d$") ~= nil
 end
 
-do
+do local __nx_ok, __nx_err = pcall(function()
 local KILLALL_MOVE_SPEED               = 39.9
 local KILLALL_APPROACH_DISTANCE        = 1.2
 local KILLALL_APPROACH_TOLERANCE       = 0.6
@@ -2403,7 +2403,7 @@ function KillAll:Stop()
 end
 
 KillAllInstance = KillAll.new()
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 7/19, línea 1729: " .. tostring(__nx_err)) end end
 
 Tabs.ExtrasScripts:Section({ Title = "Scripts Extras", Icon = "solar:code-bold" })
 Tabs.ExtrasScripts:Button({
@@ -2417,7 +2417,7 @@ Tabs.ExtrasScripts:Button({
 
 task.wait()
 
-do
+do local __nx_ok, __nx_err = pcall(function()
     local function formatUseTime(total)
         total = math.max(0, math.floor(total))
         local h = math.floor(total / 3600)
@@ -2438,7 +2438,7 @@ do
             pcall(function() timePara:SetDesc(formatUseTime(Persist.Total())) end)
         end
     end)
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 8/19, línea 2420, Información: " .. tostring(__nx_err)) end end
 
 Tabs.Aim:Section({ Title = "Auto Shoot", Icon = "solar:target-bold" })
 
@@ -2476,7 +2476,7 @@ UIElements.TogEquipGun = Tabs.Aim:Toggle({
     end
 })
 
-do
+do local __nx_ok, __nx_err = pcall(function()
 local nexvyrEquipWorkerRunning = false
 nexvyrStartEquipWorker = function()
     if nexvyrEquipWorkerRunning or not equipGunEnabled then return end
@@ -2529,7 +2529,7 @@ nexvyrStartEquipWorker = function()
     nexvyrEquipWorkerRunning = false
     end)
 end
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 9/19, línea 2479: " .. tostring(__nx_err)) end end
 
 Tabs.Aim:Space()
 Tabs.Aim:Divider()
@@ -2587,7 +2587,7 @@ persistToggle("TogSilentAimManual", UIElements.TogSilentAimManual, function() re
 persistToggle("TogSilentAimFOV", UIElements.TogSilentAimFOV, function() return silentAimFovEnabled end)
 persistToggle("TogShowFOV", UIElements.TogShowFOV, function() return fovVisiblePreference end)
 
-do
+do local __nx_ok, __nx_err = pcall(function()
 getgenv().NexvyrTargetPart = nil
 local oldNexvyrHook = getgenv().__NexvyrDeferredNamecall
 if oldNexvyrHook then oldNexvyrHook.Enabled = false end
@@ -3050,7 +3050,7 @@ nexvyrUpdateTargetWorkers = function()
     if silentAimManualEnabled or silentAimFovEnabled then nexvyrStartSilentAimWorker() end
     if equipGunEnabled then nexvyrStartEquipWorker() end
 end
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 10/19, línea 2590: " .. tostring(__nx_err)) end end
 
 Tabs.KillAll:Section({ Title = "Kill All", Icon = "solar:danger-triangle-bold" })
 
@@ -3134,7 +3134,7 @@ UIElements.TogInvisible = Tabs.Tramposo:Toggle({
 
 persistToggle("TogInvisible", UIElements.TogInvisible, function() return InvisibilityActive end)
 
-do
+do local __nx_ok, __nx_err = pcall(function()
 local nexvyrInvisibleConnection
 nexvyrSetInvisibleWorker = function(state)
     if nexvyrInvisibleConnection then
@@ -3164,7 +3164,7 @@ nexvyrSetInvisibleWorker = function(state)
         end
     end)
 end
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 11/19, línea 3137: " .. tostring(__nx_err)) end end
 
 player.CharacterAdded:Connect(function(character)
     if InvisibilityActive then
@@ -3176,7 +3176,7 @@ end)
 local SPEED = 28.7
 local JUMP_POWER = 45
 
-do
+do local __nx_ok, __nx_err = pcall(function()
 local remote = ReplicatedStorage:WaitForChild("MovementState", 3)
 local function notify(kind, on)
     if remote then
@@ -3421,7 +3421,7 @@ persistSlider("SliFly", UIElements.SliFly, function() return FLY_SPEED end)
 persistToggle("TogSpeed", UIElements.TogSpeed, function() return speedConn ~= nil end)
 persistToggle("TogInfJump", UIElements.TogInfJump, function() return jumpConn ~= nil end)
 persistToggle("TogFly", UIElements.TogFly, function() return flyConn ~= nil end)
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 12/19, línea 3179, Tramposo: " .. tostring(__nx_err)) end end
 
 Tabs.RachaFarm:Section({ Title = "Auto Teleport Main/Alt", Icon = "solar:map-arrow-square-bold" })
 
@@ -3494,7 +3494,7 @@ end)
 persistToggle("TogAutoTPMain", autoTPMainToggle, function() return AutoTeleportMainAltInstance.ActiveRole == "Main" end)
 persistToggle("TogAutoTPAlt", autoTPAltToggle, function() return AutoTeleportMainAltInstance.ActiveRole == "Alt" end)
 
-do
+do local __nx_ok, __nx_err = pcall(function()
 Tabs.Vis:Section({ Title = "Configuración de ESP", Icon = "solar:eye-bold" })
 
 local activeESPs = {}
@@ -3694,9 +3694,9 @@ UIElements.TogAutoFarmEvent = Tabs.Farm:Toggle({
 
 persistToggle("TogAutoFarmEvent", UIElements.TogAutoFarmEvent, function() return getgenv().AutoEventFarm == true end)
 
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 13/19, línea 3497, Visual: " .. tostring(__nx_err)) end end
 
-do
+do local __nx_ok, __nx_err = pcall(function()
 local animationData = {
     ["Old School"] = { Walk = 10921244891, Run = 10921240218, Jump = 10921242013, Fall = 10921241244, SwimIdle = 10921244018, Swim = 10921243048, Idle = 10921230744, Idle2 = 10921232093, Climb = 10921229866 },
     ["Adidas Sports"] = { Walk = 18537392113, Run = 18537384940, Jump = 18537380791, Fall = 18537367238, SwimIdle = 18537387180, Swim = 18537389531, Idle = 18537376492, Idle2 = 18537371272, Climb = 18537363391 },
@@ -3919,7 +3919,7 @@ Tabs.Animaciones:Button({
     end
 })
 
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 14/19, línea 3699, Animaciones: " .. tostring(__nx_err)) end end
 
 local KillSoundVolume = 1
 
@@ -3941,7 +3941,7 @@ ReloadSoundPlayer.Volume = 1
 ReloadSoundPlayer.Looped = false
 ReloadSoundPlayer.Parent = SoundService
 
-do
+do local __nx_ok, __nx_err = pcall(function()
 local ContentProvider = game:GetService("ContentProvider")
 
 local function dmvsDisconnectConnectionList(list)
@@ -4405,13 +4405,13 @@ persistDropdown("DropShootSound", UIElements.DropShootSound, function() return S
 persistSlider("SliKillSoundVolume", UIElements.SliKillSoundVolume, function() return KillSoundVolume end)
 persistToggle("TogKillSound", UIElements.TogKillSound, function() return KillSoundEnabled end)
 persistToggle("TogShootReload", UIElements.TogShootReload, function() return RecargaDisparoEnabled end)
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 15/19, línea 3944, Sonidos: " .. tostring(__nx_err)) end end
 
 Tabs.Identidad:Section({ Title = "identidad falsa", Icon = "solar:user-id-bold" })
 
 local updateSystem
 
-do
+do local __nx_ok, __nx_err = pcall(function()
 local function safeReplace(str, find, replace)
     local safeFind = find:gsub("[%-%^%$%(%)%%%.%[%]%*%+%?]", "%%%1")
     local safeRep = replace:gsub("%%", "%%%%")
@@ -4715,9 +4715,9 @@ player.CharacterAdded:Connect(function()
         updateSystem()
     end
 end)
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 16/19, línea 4414, Identidad: " .. tostring(__nx_err)) end end
 
-do
+do local __nx_ok, __nx_err = pcall(function()
 local TweenService = game:GetService("TweenService")
 local emoteSpamEnabled = false
 local emoteSpamSelected = nil
@@ -5225,9 +5225,9 @@ end, function(v)
 end)
 persistToggle("TogFloatButtons", UIElements.TogFloatButtons, function() return floatGui.Enabled end)
 persistToggle("TogEmoteSpam", UIElements.TogEmoteSpam, function() return emoteGui.Enabled end)
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 17/19, línea 4720, Botones: " .. tostring(__nx_err)) end end
 
-do
+do local __nx_ok, __nx_err = pcall(function()
     local WINDOW_KEY = Enum.KeyCode.LeftControl
     local windowOpen = true
 
@@ -5241,9 +5241,9 @@ do
             if windowOpen then Window:Open() else Window:Close() end
         end)
     end)
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 18/19, línea 5230: " .. tostring(__nx_err)) end end
 
-do
+do local __nx_ok, __nx_err = pcall(function()
     task.spawn(function()
         task.wait(0.3)
         local data = Persist.Data
@@ -5273,4 +5273,4 @@ do
             if p == player then Persist.Save() end
         end)
     end)
-end
+end) if not __nx_ok then warn("[NexvyrHub] Error en el bloque 19/19, línea 5246: " .. tostring(__nx_err)) end end
