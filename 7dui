@@ -634,10 +634,9 @@ local autoShootTargetPart = "Cabeza"
 local silentAimManualEnabled = false
 local silentAimFovEnabled = false
 local silentAimTargetPart = "Cabeza"
-local teamCheckEnabled = true
 local espEnabled = false
 local espColor = Color3.fromRGB(255, 182, 193)
-local espSettings = { Glow = true, Box = false, Name = false }
+local espSettings = { Glow = true }
 local KillAllEnabled = false
 local hitboxEnabled = false
 local hitboxInvisible = false
@@ -833,20 +832,15 @@ local ConfigSection = Window:Section({ Title = "Configuraciones", Opened = true 
 local Tabs = {
     Informaciones = NovedadSection:Tab({ Title = "informaciónes", Icon = "solar:info-circle-bold" }),
     ExtrasScripts = ExtrasScriptsSection:Tab({ Title = "Extras scripts", Icon = "solar:code-square-bold" }),
-    Graficos = ExtrasScriptsSection:Tab({ Title = "Gráficos", Icon = "solar:palette-bold" }),
     Botones = ExtrasScriptsSection:Tab({ Title = "Botones", Icon = "solar:gamepad-bold" }),
-    Inicio = PrincipalesSection:Tab({ Title = "Inició", Icon = "solar:home-2-bold" }),
     Aim = PrincipalesSection:Tab({ Title = "Aimbot", Icon = "solar:target-bold" }),
     Vis = PrincipalesSection:Tab({ Title = "Visual", Icon = "solar:eye-bold" }),
     KillAll = PrincipalesSection:Tab({ Title = "Kill All", Icon = "solar:danger-triangle-bold" }),
-    Invisible = PrincipalesSection:Tab({ Title = "Invisible", Icon = "solar:ghost-bold" }),
     Tramposo = PrincipalesSection:Tab({ Title = "Tramposo", Icon = "solar:bolt-bold" }),
     Farm = FarmeoSection:Tab({ Title = "Farmear evento", Icon = "solar:gift-bold" }),
     RachaFarm = FarmeoSection:Tab({ Title = "Farmear racha", Icon = "solar:flame-bold" }),
     Animaciones = ConfigSection:Tab({ Title = "Animaciones", Icon = "solar:smile-circle-bold" }),
     Sonidos = ConfigSection:Tab({ Title = "Sonidos", Icon = "solar:speaker-bold" }),
-    Music = ConfigSection:Tab({ Title = "Música", Icon = "solar:music-note-2-bold" }),
-    Items = ConfigSection:Tab({ Title = "Items", Icon = "solar:crown-star-bold" }),
     Identidad = ConfigSection:Tab({ Title = "Identidad", Icon = "solar:user-id-bold" })
 }
 
@@ -1028,7 +1022,6 @@ local function dmvsDisconnectConnectionList(list)
         if connection and connection.Connected then connection:Disconnect() end
     end
 end
-local dmvsIsInfectionMode
 local function dmvsIsTargetAlive(target)
     local character = target
     if typeof(target) == "Instance" and target:IsA("Player") then
@@ -1036,9 +1029,6 @@ local function dmvsIsTargetAlive(target)
     end
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     if not humanoid or humanoid.Health <= 0 then return false end
-    if dmvsIsInfectionMode and dmvsIsInfectionMode() then
-        return character:GetAttribute("InfectionDowned") ~= true
-    end
     return humanoid.Health >= 99
 end
 local function dmvsGetInGameScoreboard()
@@ -1118,423 +1108,10 @@ local function dmvsRefreshScoreboardTeams(force)
     return snapshot
 end
 
-local dmvsInfectionRoleAttributes = {"InfectionInfected", "IsInfected", "Infected", "IsZombie", "Zombie"}
-local dmvsInfectionModeAttributes = {"GameMode", "MatchMode", "Mode"}
-local dmvsInfectionState = {
-    Active = false,
-    LastRefresh = -math.huge,
-    RefreshInterval = 0.4,
-    RoleTeams = {},
-    Inferred = {},
-    Targets = {},
-    Converted = {},
-    ConvertedAt = {},
-    Pending = {},
-    LateJoiners = {},
-    LastLocalGame = nil,
-    LastMatchId = nil,
-    HasMatchContext = false,
-    RoundEnded = false
-}
-
-local function dmvsInfectionReadMarker(holder)
-    if not holder then return nil end
-    if holder:GetAttribute("InfectionPatientZero") == true then return true end
-    local sawSurvivor = false
-    for _, name in ipairs(dmvsInfectionRoleAttributes) do
-        local value = holder:GetAttribute(name)
-        if typeof(value) == "boolean" then
-            if value then return true end
-            sawSurvivor = true
-        elseif typeof(value) == "string" then
-            local normalized = value:lower()
-            if normalized == "infected" or normalized == "infection" or normalized == "zombie" or normalized == "true" then
-                return true
-            end
-            if normalized == "survivor" or normalized == "human" or normalized == "false" then
-                sawSurvivor = true
-            end
-        end
-    end
-    if sawSurvivor then return false end
-    return nil
-end
-
-local function dmvsInfectionHasPatientZero(other)
-    if other:GetAttribute("InfectionPatientZero") == true then return true end
-    local character = other.Character
-    if not character then return false end
-    if character:GetAttribute("InfectionPatientZero") == true then return true end
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    return humanoid ~= nil and humanoid:GetAttribute("InfectionPatientZero") == true
-end
-
-local function dmvsInfectionAttribute(playerInstance)
-    if not playerInstance then return nil end
-    local character = playerInstance.Character
-    local characterStatus = dmvsInfectionReadMarker(character)
-    local playerStatus = dmvsInfectionReadMarker(playerInstance)
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    local humanoidStatus = dmvsInfectionReadMarker(humanoid)
-    if characterStatus == true or playerStatus == true or humanoidStatus == true then return true end
-    if characterStatus == false or playerStatus == false or humanoidStatus == false then return false end
-    return nil
-end
-
-local function dmvsReadInfectionRoster(teams)
-    local frame = playerGui:FindFirstChild("Main")
-    frame = frame and frame:FindFirstChild("MainGameFrame")
-    if not frame then return end
-    local playerFrame = frame:FindFirstChild("PlayersFrame")
-    local regularFrame = frame:FindFirstChild("IngameScore")
-    local playerNames = {}
-    local displayCandidates = {}
-    local ambiguousDisplays = {}
-    for _, other in ipairs(Players:GetPlayers()) do
-        playerNames[other.Name:lower()] = other
-        playerNames[tostring(other.UserId)] = other
-        local displayKey = other.DisplayName:lower()
-        if displayCandidates[displayKey] then ambiguousDisplays[displayKey] = true end
-        displayCandidates[displayKey] = other
-    end
-    for displayKey, other in pairs(displayCandidates) do
-        if not ambiguousDisplays[displayKey] and not playerNames[displayKey] then
-            playerNames[displayKey] = other
-        end
-    end
-    local function collect(group, team)
-        if not group then return end
-        for _, entry in ipairs(group:GetChildren()) do
-            if entry:IsA("GuiObject") then
-                local other = playerNames[entry.Name:lower():gsub("^@", "")]
-                if not other then
-                    local entryUserId = entry:GetAttribute("UserId")
-                    if entryUserId then other = playerNames[tostring(entryUserId)] end
-                end
-                if not other then
-                    for _, sub in ipairs(entry:GetDescendants()) do
-                        if sub:IsA("TextLabel") and (sub.Name == "PlayerName" or sub.Name == "TextLabel") then
-                            other = playerNames[sub.Text:lower():gsub("^@", "")]
-                            if other then break end
-                        end
-                    end
-                end
-                if other then teams[other] = team end
-            end
-        end
-    end
-    if regularFrame then
-        collect(regularFrame:FindFirstChild("TeamRed"), "Red")
-        collect(regularFrame:FindFirstChild("TeamBlue"), "Blue")
-    end
-    if playerFrame then
-        collect(playerFrame:FindFirstChild("TeamRedFrame"), "Red")
-        collect(playerFrame:FindFirstChild("TeamBlueFrame"), "Blue")
-    end
-end
-
-local function dmvsClearInfectionRound(ended)
-    local state = dmvsInfectionState
-    table.clear(state.Converted)
-    table.clear(state.ConvertedAt)
-    table.clear(state.Pending)
-    table.clear(state.LateJoiners)
-    table.clear(state.Inferred)
-    table.clear(state.Targets)
-    table.clear(state.RoleTeams)
-    state.Active = false
-    state.RoundEnded = ended == true
-    state.LastRefresh = -math.huge
-    if dmvsInvalidateRedirectSelection then dmvsInvalidateRedirectSelection() end
-end
-
-local function dmvsRefreshInfectionState(force)
-    local state = dmvsInfectionState
-    local now = os.clock()
-    local localGame = player:GetAttribute("Game")
-    local matchId = player:GetAttribute("MatchId")
-    if state.HasMatchContext and (localGame ~= state.LastLocalGame or matchId ~= state.LastMatchId) then
-        dmvsClearInfectionRound(false)
-    end
-    state.HasMatchContext = true
-    state.LastLocalGame = localGame
-    state.LastMatchId = matchId
-    if not force and now - state.LastRefresh < state.RefreshInterval then
-        return state
-    end
-    state.LastRefresh = now
-    local regularRoster = dmvsRefreshScoreboardTeams(false)
-    local foundPatientZero = false
-    local ownCharacter = player.Character
-    local myRoot = ownCharacter and ownCharacter:FindFirstChild("HumanoidRootPart")
-    local allPlayers = Players:GetPlayers()
-    for _, other in ipairs(allPlayers) do
-        if dmvsInfectionHasPatientZero(other) then
-            local compatible = other == player
-            if not compatible then
-                compatible = true
-                local otherGame = other:GetAttribute("Game")
-                local otherMatch = other:GetAttribute("MatchId")
-                if localGame ~= nil and localGame ~= ""
-                    and otherGame ~= nil and otherGame ~= "" and localGame ~= otherGame then
-                    compatible = false
-                end
-                if (localGame == nil or localGame == "")
-                    and otherGame ~= nil and otherGame ~= "" then
-                    compatible = false
-                end
-                if matchId ~= nil and matchId ~= ""
-                    and otherMatch ~= nil and otherMatch ~= "" and matchId ~= otherMatch then
-                    compatible = false
-                end
-                local theirCharacter = other.Character
-                local theirRoot = theirCharacter and theirCharacter:FindFirstChild("HumanoidRootPart")
-                if myRoot and theirRoot and (myRoot.Position - theirRoot.Position).Magnitude > 1200 then
-                    compatible = false
-                end
-            end
-            if compatible then
-                foundPatientZero = true
-                break
-            end
-        end
-    end
-    local modeAttribute
-    for _, name in ipairs(dmvsInfectionModeAttributes) do
-        local value = player:GetAttribute(name)
-        if typeof(value) == "string" and value ~= "" then
-            modeAttribute = value:lower()
-            break
-        end
-    end
-    if not modeAttribute then
-        for _, name in ipairs(dmvsInfectionModeAttributes) do
-            local value = workspace:GetAttribute(name)
-            if typeof(value) == "string" and value ~= "" then
-                modeAttribute = value:lower()
-                break
-            end
-        end
-    end
-    local active = not state.RoundEnded and
-        (modeAttribute == "infection" or
-            (not modeAttribute and (foundPatientZero or
-                (state.Active and not dmvsTeamResolverState.InGame))))
-    if not active then
-        if modeAttribute and modeAttribute ~= "infection" and next(state.LateJoiners) ~= nil then
-            table.clear(state.LateJoiners)
-        end
-        if state.Active or next(state.Targets) ~= nil then
-            if modeAttribute and modeAttribute ~= "infection" then
-                dmvsClearInfectionRound(false)
-            else
-                state.Active = false
-                table.clear(state.Targets)
-                table.clear(state.Inferred)
-                table.clear(state.RoleTeams)
-                if dmvsInvalidateRedirectSelection then dmvsInvalidateRedirectSelection() end
-            end
-        end
-        return state
-    end
-    state.Active = true
-    local teams = {}
-    dmvsReadInfectionRoster(teams)
-    state.RoleTeams = teams
-    local infectedTeam
-    local ambiguousTeam = false
-    local markers = {}
-    for _, other in ipairs(allPlayers) do
-        local marker = dmvsInfectionAttribute(other)
-        markers[other] = marker
-        if marker == true or state.Converted[other] == true then
-            local team = teams[other]
-            if team then
-                if infectedTeam and infectedTeam ~= team then ambiguousTeam = true end
-                infectedTeam = team
-            end
-        end
-    end
-    local inferred = {}
-    if infectedTeam and not ambiguousTeam then
-        for other, team in pairs(teams) do
-            if team == infectedTeam and markers[other] ~= false then
-                inferred[other] = true
-            end
-        end
-    end
-    state.Inferred = inferred
-    local function createTargets()
-        local targets = {}
-        for _, other in ipairs(allPlayers) do
-            if markers[other] == true or state.Converted[other] == true
-                or (markers[other] ~= false and inferred[other] == true) then
-                targets[other] = true
-            end
-        end
-        return targets
-    end
-    local targets = createTargets()
-    local infectedRoots = {}
-    for infectedPlayer in pairs(targets) do
-        local infectedCharacter = infectedPlayer.Character
-        local infectedRoot = infectedCharacter and infectedCharacter:FindFirstChild("HumanoidRootPart")
-        if infectedRoot and infectedRoot:IsA("BasePart") then
-            infectedRoots[#infectedRoots + 1] = infectedRoot
-        end
-    end
-    for _, other in ipairs(allPlayers) do
-        if other ~= player and state.LateJoiners[other] and markers[other] == nil
-            and not targets[other] and other.Character then
-            local rosterTeam = teams[other] or regularRoster[other.Name:lower()]
-            local otherGame = other:GetAttribute("Game")
-            local otherMatch = other:GetAttribute("MatchId")
-            local sameGame = localGame ~= nil and localGame ~= "" and otherGame == localGame
-            local sameMatch = matchId ~= nil and matchId ~= "" and otherMatch == matchId
-            local differentGame = localGame ~= nil and localGame ~= "" and otherGame ~= nil
-                and otherGame ~= "" and otherGame ~= localGame
-            local differentMatch = matchId ~= nil and matchId ~= "" and otherMatch ~= nil
-                and otherMatch ~= "" and otherMatch ~= matchId
-            if not differentGame and not differentMatch then
-                local sharesInfectedTeam = false
-                for infectedPlayer in pairs(targets) do
-                    local infectedRobloxTeam = infectedPlayer.Team
-                    if infectedRobloxTeam and other.Team == infectedRobloxTeam
-                        and (markers[infectedPlayer] == true or state.Converted[infectedPlayer] == true
-                            or inferred[infectedPlayer] == true) then
-                        sharesInfectedTeam = true
-                        break
-                    end
-                end
-                local nearInfected = false
-                if not rosterTeam and not sameGame and not sameMatch and not sharesInfectedTeam then
-                    local characterRoot = other.Character:FindFirstChild("HumanoidRootPart")
-                    if characterRoot and characterRoot:IsA("BasePart") then
-                        local position = characterRoot.Position
-                        for _, infectedRoot in ipairs(infectedRoots) do
-                            if (infectedRoot.Position - position).Magnitude <= 300 then
-                                nearInfected = true
-                                break
-                            end
-                        end
-                    end
-                end
-                local participates = rosterTeam ~= nil or sameGame or sameMatch
-                    or sharesInfectedTeam or nearInfected
-                if participates and (not infectedTeam or ambiguousTeam or not rosterTeam or rosterTeam == infectedTeam) then
-                    targets[other] = true
-                end
-            end
-        end
-    end
-    local pending = state.Pending
-    local changed = true
-    while changed do
-        changed = false
-        for index = #pending, 1, -1 do
-            local entry = pending[index]
-            if now - entry.Time > 10 or entry.Killer.Parent ~= Players or entry.Victim.Parent ~= Players then
-                table.remove(pending, index)
-            elseif targets[entry.Killer] and not targets[entry.Victim]
-                and (not state.ConvertedAt[entry.Killer]
-                    or state.ConvertedAt[entry.Killer] <= entry.Time) then
-                state.Converted[entry.Victim] = true
-                state.ConvertedAt[entry.Victim] = entry.Time
-                targets[entry.Victim] = true
-                table.remove(pending, index)
-                changed = true
-            elseif targets[entry.Killer] then
-                table.remove(pending, index)
-            end
-        end
-    end
-    local previous = state.Targets
-    local targetChanged = false
-    for other in pairs(previous) do
-        if not targets[other] then targetChanged = true; break end
-    end
-    if not targetChanged then
-        for other in pairs(targets) do
-            if not previous[other] then targetChanged = true; break end
-        end
-    end
-    state.Targets = targets
-    if targetChanged and dmvsInvalidateRedirectSelection then
-        dmvsInvalidateRedirectSelection()
-    end
-    return state
-end
-
-dmvsIsInfectionMode = function()
-    return dmvsRefreshInfectionState(false).Active
-end
-
-local function dmvsIsInfectedTarget(targetPlayer)
-    if not targetPlayer then return false end
-    local state = dmvsRefreshInfectionState(false)
-    return state.Active and state.Targets[targetPlayer] == true
-end
-
-local function dmvsInfectionMatchAllowed(targetPlayer, allowMissingCharacter)
-    if not targetPlayer or targetPlayer == player or not targetPlayer.Parent
-        or (not allowMissingCharacter and not targetPlayer.Character) then
-        return false
-    end
-    local myGame = player:GetAttribute("Game")
-    local targetGame = targetPlayer:GetAttribute("Game")
-    if myGame ~= nil and myGame ~= "" and targetGame ~= nil and targetGame ~= "" and myGame ~= targetGame then
-        return false
-    end
-    if (myGame == nil or myGame == "") and targetGame ~= nil and targetGame ~= "" then
-        return false
-    end
-    local myMatch = player:GetAttribute("MatchId")
-    local targetMatch = targetPlayer:GetAttribute("MatchId")
-    if myMatch ~= nil and myMatch ~= "" and targetMatch ~= nil and targetMatch ~= "" and myMatch ~= targetMatch then
-        return false
-    end
-    local myRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    local otherRoot = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if myRoot and otherRoot and (myRoot.Position - otherRoot.Position).Magnitude > 1200 then
-        return false
-    end
-    return true
-end
-
-local function dmvsInfectionMarkDirty()
-    dmvsInfectionState.LastRefresh = -math.huge
-end
-
-local function dmvsInfectionOnKill(killer, victim)
-    if typeof(killer) ~= "Instance" or not killer:IsA("Player")
-        or typeof(victim) ~= "Instance" or not victim:IsA("Player")
-        or killer == victim or not dmvsIsInfectionMode()
-        or (killer ~= player and not dmvsInfectionMatchAllowed(killer, true))
-        or (victim ~= player and not dmvsInfectionMatchAllowed(victim, true)) then
-        return
-    end
-    local state = dmvsRefreshInfectionState(false)
-    if state.Targets[victim] then return end
-    if state.Targets[killer] then
-        state.Converted[victim] = true
-        state.ConvertedAt[victim] = os.clock()
-        state.LastRefresh = -math.huge
-        dmvsRefreshInfectionState(true)
-    else
-        if #state.Pending >= 96 then table.remove(state.Pending, 1) end
-        state.Pending[#state.Pending + 1] = {Killer = killer, Victim = victim, Time = os.clock()}
-        state.LastRefresh = -math.huge
-    end
-end
-
 local dmvsIsInSameGame
 dmvsIsInSameGame = function(targetPlayer)
     if not targetPlayer or targetPlayer == player or not targetPlayer.Parent then
         return false
-    end
-
-    if dmvsIsInfectionMode() then
-        return dmvsInfectionMatchAllowed(targetPlayer) and dmvsIsInfectedTarget(targetPlayer)
     end
 
     local roster = dmvsRefreshScoreboardTeams(false)
@@ -1594,10 +1171,6 @@ local function dmvsPlayersAreEnemies(firstPlayer, secondPlayer)
     if not firstPlayer or not secondPlayer or firstPlayer == secondPlayer then
         return false
     end
-    if dmvsIsInfectionMode() then
-        return dmvsIsInfectedTarget(secondPlayer)
-    end
-
     local firstTeam = dmvsResolvePlayerTeam(firstPlayer)
     local secondTeam = dmvsResolvePlayerTeam(secondPlayer)
 
@@ -1615,50 +1188,17 @@ end
 
 local function updateEnemy()
     dmvsInvalidateScoreboard()
-    dmvsInfectionMarkDirty()
     if dmvsInvalidateRedirectSelection then dmvsInvalidateRedirectSelection() end
 end
 
 local dmvsTeamPlayerConnections = {}
-local dmvsInfectionCharacterConnections = {}
 
 local function disconnectPlayerTeamEvents(p)
-    dmvsDisconnectConnectionList(dmvsInfectionCharacterConnections[p])
-    dmvsInfectionCharacterConnections[p] = nil
     local connections = dmvsTeamPlayerConnections[p]
     if connections then
         dmvsDisconnectConnectionList(connections)
         dmvsTeamPlayerConnections[p] = nil
     end
-end
-
-local function dmvsWatchInfectionCharacter(p, character)
-    dmvsDisconnectConnectionList(dmvsInfectionCharacterConnections[p])
-    dmvsInfectionCharacterConnections[p] = nil
-    if not character then return end
-    local connections = {}
-    dmvsInfectionCharacterConnections[p] = connections
-    local function changed(name)
-        if name == "InfectionPatientZero" or name == "InfectionInfected"
-            or name == "IsInfected" or name == "Infected"
-            or name == "IsZombie" or name == "Zombie" then
-            dmvsInfectionMarkDirty()
-            updateEnemy()
-        end
-    end
-    connections[#connections + 1] = character.AttributeChanged:Connect(changed)
-    local function bindHumanoid(humanoid)
-        if humanoid and humanoid:IsA("Humanoid") then
-            connections[#connections + 1] = humanoid.AttributeChanged:Connect(changed)
-        end
-    end
-    bindHumanoid(character:FindFirstChildOfClass("Humanoid"))
-    connections[#connections + 1] = character.ChildAdded:Connect(function(child)
-        if child:IsA("Humanoid") then
-            bindHumanoid(child)
-            dmvsInfectionMarkDirty()
-        end
-    end)
 end
 
 local function setupPlayerEvents(p)
@@ -1671,26 +1211,13 @@ local function setupPlayerEvents(p)
         p:GetAttributeChangedSignal("team"):Connect(updateEnemy),
         p:GetAttributeChangedSignal("Game"):Connect(updateEnemy),
         p:GetAttributeChangedSignal("MatchId"):Connect(updateEnemy),
-        p.AttributeChanged:Connect(function(name)
-            if name == "InfectionPatientZero" or name == "InfectionInfected"
-                or name == "IsInfected" or name == "Infected"
-                or name == "IsZombie" or name == "Zombie" then
-                dmvsInfectionMarkDirty()
-                updateEnemy()
-            end
-        end),
-        p.CharacterAdded:Connect(function(character)
-            dmvsWatchInfectionCharacter(p, character)
-            dmvsInfectionMarkDirty()
+        p.CharacterAdded:Connect(function()
             updateEnemy()
         end),
         p.CharacterRemoving:Connect(function(character)
-            dmvsWatchInfectionCharacter(p, nil)
-            dmvsInfectionMarkDirty()
             if dmvsClearTargetParts then dmvsClearTargetParts(character) end
         end)
     }
-    dmvsWatchInfectionCharacter(p, p.Character)
     updateEnemy()
 end
 
@@ -1706,79 +1233,35 @@ local function nexvyrStartTargetMonitor()
     nexvyrTargetMonitorActive = true
     nexvyrTargetMonitorSession += 1
     local session = nexvyrTargetMonitorSession
-    local function localChanged() updateMyTeam(); dmvsInfectionMarkDirty() end
+    local function localChanged() updateMyTeam() end
     for _, name in ipairs({"Team", "TeamColor"}) do
         nexvyrMonitorConnection(player:GetPropertyChangedSignal(name):Connect(localChanged))
     end
-    for _, name in ipairs({"Team", "team", "Game", "MatchId", "GameMode", "MatchMode", "Mode"}) do
+    for _, name in ipairs({"Team", "team", "Game", "MatchId"}) do
         nexvyrMonitorConnection(player:GetAttributeChangedSignal(name):Connect(localChanged))
     end
-    nexvyrMonitorConnection(player.AttributeChanged:Connect(function(name)
-        if name == "InfectionPatientZero" or name == "InfectionInfected" or name == "IsInfected"
-            or name == "Infected" or name == "IsZombie" or name == "Zombie" then dmvsInfectionMarkDirty() end
-    end))
-    nexvyrMonitorConnection(player.CharacterAdded:Connect(dmvsInfectionMarkDirty))
     nexvyrMonitorConnection(playerGui.DescendantAdded:Connect(function(instance)
         if instance.Name == "IngameScore" or instance.Name == "TeamRed" or instance.Name == "TeamBlue" then
-            dmvsInvalidateScoreboard(); dmvsInfectionMarkDirty()
+            dmvsInvalidateScoreboard()
         end
     end))
     nexvyrMonitorConnection(playerGui.DescendantRemoving:Connect(function(instance)
         if instance == dmvsTeamResolverState.Scoreboard or instance.Name == "IngameScore"
             or instance.Name == "TeamRed" or instance.Name == "TeamBlue" then
-            dmvsInvalidateScoreboard(); dmvsInfectionMarkDirty()
+            dmvsInvalidateScoreboard()
         end
     end))
     for _, other in ipairs(Players:GetPlayers()) do
         if other ~= player then setupPlayerEvents(other) end
     end
     nexvyrMonitorConnection(Players.PlayerAdded:Connect(function(other)
-        dmvsInfectionState.LateJoiners[other] = true
         setupPlayerEvents(other)
-        dmvsInfectionMarkDirty()
     end))
     nexvyrMonitorConnection(Players.PlayerRemoving:Connect(function(other)
         disconnectPlayerTeamEvents(other)
-        for i = #dmvsInfectionState.Pending, 1, -1 do
-            local entry = dmvsInfectionState.Pending[i]
-            if entry.Killer == other or entry.Victim == other then table.remove(dmvsInfectionState.Pending, i) end
-        end
-        for _, bucket in ipairs({"Converted", "ConvertedAt", "LateJoiners", "Inferred", "Targets", "RoleTeams"}) do
-            dmvsInfectionState[bucket][other] = nil
-        end
         updateEnemy()
     end))
     dmvsInvalidateScoreboard()
-    dmvsInfectionMarkDirty()
-    task.spawn(function()
-        local registered = {}
-        local listeners = {
-            ["RE/Combat/Killed"] = dmvsInfectionOnKill,
-            ["RE/Match/PlayerRespawned"] = dmvsInfectionMarkDirty,
-            ["RE/Match/StartRoundGui"] = function() dmvsClearInfectionRound(false) end,
-            ["RE/Match/MatchResults"] = function()
-                if dmvsInfectionState.Active then dmvsClearInfectionRound(true) end
-            end
-        }
-        while nexvyrTargetMonitorActive and session == nexvyrTargetMonitorSession do
-            local packages = ReplicatedStorage:FindFirstChild("Packages")
-            local networking = packages and packages:FindFirstChild("Networking")
-            local finished = true
-            for name, callback in pairs(listeners) do
-                if not registered[name] then
-                    local remote = networking and networking:FindFirstChild(name)
-                    if remote and remote:IsA("RemoteEvent") then
-                        nexvyrMonitorConnection(remote.OnClientEvent:Connect(callback))
-                        registered[name] = true
-                    else
-                        finished = false
-                    end
-                end
-            end
-            if finished then break end
-            task.wait(2)
-        end
-    end)
 end
 local function nexvyrStopTargetMonitor()
     if not nexvyrTargetMonitorActive then return end
@@ -1791,12 +1274,11 @@ local function nexvyrStopTargetMonitor()
     dmvsTeamResolverState.Snapshot = {}
     dmvsTeamResolverState.InGame = false
     dmvsTeamResolverState.Dirty = true
-    dmvsClearInfectionRound(false)
 end
 nexvyrRefreshTargetMonitor = function()
     if autoShootEnabled or autoShootAgresivoEnabled or silentAimManualEnabled
         or silentAimFovEnabled or equipGunEnabled
-        or (espEnabled and (espSettings.Glow or espSettings.Box or espSettings.Name))
+        or (espEnabled and espSettings.Glow)
         or hitboxEnabled or KillAllEnabled then
         nexvyrStartTargetMonitor()
     else
@@ -1839,7 +1321,7 @@ end
 IsInMatchStrict = function()
     if estaEnLobby() then return false end
     dmvsRefreshScoreboardTeams(false)
-    return dmvsTeamResolverState.InGame or dmvsIsInfectionMode()
+    return dmvsTeamResolverState.InGame
 end
 esCuchillo = function(tool)
     if not tool or not tool:IsA("Tool") then return false end
@@ -2936,120 +2418,18 @@ Tabs.ExtrasScripts:Button({
 task.wait()
 
 do
-    local DISCORD_LINK = "https://discord.gg/xw3Rr2W7v"
-    local IMAGE_ID = 114452675067716
-    local THUMB_SIZE = 110
-    local ContentProvider = game:GetService("ContentProvider")
-
-    local function new(class, props, parent)
-        local o = Instance.new(class)
-        for k, v in pairs(props) do o[k] = v end
-        o.Parent = parent
-        return o
-    end
-
     local function formatUseTime(total)
         total = math.max(0, math.floor(total))
         local h = math.floor(total / 3600)
         local m = math.floor((total % 3600) / 60)
-        local s = total % 60
-        return string.format("%dh %02dm %02ds", h, m, s)
+        local sec = total % 60
+        return string.format("%dh %02dm %02ds", h, m, sec)
     end
 
-    local executorName = "Desconocido"
-    pcall(function()
-        local identify = identifyexecutor or getexecutorname
-        if identify then
-            local name, version = identify()
-            if name then
-                executorName = tostring(name) .. (version and (" " .. tostring(version)) or "")
-            end
-        end
-    end)
-
-    local profilePara = Tabs.Inicio:Paragraph({
-        Title = player.DisplayName,
-        Desc = "@" .. player.Name,
-        Thumbnail = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=150&h=150",
-        ThumbnailSize = 70,
-    })
-
-    task.spawn(function()
-        task.wait(0.4)
-        local host
-        for _, h in ipairs({
-            profilePara and profilePara.ElementFrame,
-            profilePara and profilePara.Frame,
-            profilePara and profilePara.UIElements and profilePara.UIElements.Main,
-            profilePara and profilePara.UIElements and profilePara.UIElements.Container,
-        }) do
-            if typeof(h) == "Instance" and h:IsA("GuiObject") then host = h break end
-        end
-        local parent = host and host.Parent
-        if not parent then return end
-
-        local card = new("Frame", {
-            Name = "NexvyrPerfil",
-            Size = UDim2.new(1, 0, 0, 88),
-            BackgroundColor3 = Color3.fromRGB(26, 12, 16),
-            BackgroundTransparency = 0.25,
-            BorderSizePixel = 0,
-            LayoutOrder = -1000,
-        }, parent)
-        new("UICorner", { CornerRadius = UDim.new(0, 14) }, card)
-        new("UIStroke", { Color = Color3.fromHex("#DC143C"), Transparency = 0.65, Thickness = 1 }, card)
-
-        local avatar = new("ImageLabel", {
-            AnchorPoint = Vector2.new(0, 0.5),
-            Position = UDim2.new(0, 14, 0.5, 0),
-            Size = UDim2.fromOffset(64, 64),
-            BackgroundColor3 = Color3.fromRGB(20, 20, 24),
-            BorderSizePixel = 0,
-            Image = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=150&h=150",
-            ScaleType = Enum.ScaleType.Crop,
-        }, card)
-        new("UICorner", { CornerRadius = UDim.new(1, 0) }, avatar)
-        new("UIStroke", { Color = Color3.fromHex("#DC143C"), Thickness = 2 }, avatar)
-
-        new("TextLabel", {
-            AnchorPoint = Vector2.new(0, 1),
-            Position = UDim2.new(0, 92, 0.5, 1),
-            Size = UDim2.new(1, -106, 0, 26),
-            BackgroundTransparency = 1,
-            Font = Enum.Font.GothamBold,
-            Text = player.DisplayName,
-            TextColor3 = Color3.new(1, 1, 1),
-            TextSize = 18,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd,
-        }, card)
-
-        new("TextLabel", {
-            AnchorPoint = Vector2.new(0, 0),
-            Position = UDim2.new(0, 92, 0.5, 3),
-            Size = UDim2.new(1, -106, 0, 22),
-            BackgroundTransparency = 1,
-            Font = Enum.Font.Gotham,
-            Text = "@" .. player.Name,
-            TextColor3 = Color3.fromRGB(255, 143, 163),
-            TextSize = 14,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd,
-        }, card)
-
-        host.Visible = false
-    end)
-
-    local timePara = Tabs.Inicio:Paragraph({
+    local timePara = Tabs.Informaciones:Paragraph({
         Title = "Tiempo usando el script",
         Desc = formatUseTime(Persist.Total()),
         Icon = "solar:clock-circle-bold",
-    })
-
-    Tabs.Inicio:Paragraph({
-        Title = "Ejecutor",
-        Desc = executorName,
-        Icon = "solar:settings-bold",
     })
 
     task.spawn(function()
@@ -3058,134 +2438,6 @@ do
             pcall(function() timePara:SetDesc(formatUseTime(Persist.Total())) end)
         end
     end)
-
-    Tabs.Inicio:Space()
-    Tabs.Inicio:Divider()
-    Tabs.Inicio:Space()
-
-    local candidates = {
-        "rbxthumb://type=Asset&id=" .. IMAGE_ID .. "&w=420&h=420",
-        "rbxassetid://" .. IMAGE_ID,
-        "https://www.roblox.com/asset/?id=" .. IMAGE_ID,
-    }
-
-    local para = Tabs.Inicio:Paragraph({
-        Title = "Únete al discord copiando el link",
-        Thumbnail = candidates[1],
-        ThumbnailSize = THUMB_SIZE,
-    })
-
-    local function resolveImage()
-        for _, url in ipairs(candidates) do
-            local probe = Instance.new("ImageLabel")
-            probe.Image = url
-            pcall(function() ContentProvider:PreloadAsync({ probe }) end)
-            local loaded = false
-            pcall(function() loaded = probe.IsLoaded end)
-            probe:Destroy()
-            if loaded then return url end
-        end
-        local okObj, objs = pcall(function() return game:GetObjects("rbxassetid://" .. IMAGE_ID) end)
-        if okObj and type(objs) == "table" and objs[1] then
-            local o = objs[1]
-            local tex
-            if o:IsA("Decal") or o:IsA("Texture") then
-                tex = o.Texture
-            elseif o:IsA("ImageLabel") or o:IsA("ImageButton") then
-                tex = o.Image
-            end
-            pcall(function() o:Destroy() end)
-            if tex and tex ~= "" then return tex end
-        end
-        return candidates[1]
-    end
-
-    local function findHost()
-        local list = {
-            para and para.ElementFrame,
-            para and para.Frame,
-            para and para.UIElements and para.UIElements.Main,
-            para and para.UIElements and para.UIElements.Container,
-        }
-        for _, h in ipairs(list) do
-            if typeof(h) == "Instance" and h:IsA("GuiObject") then return h end
-        end
-        return nil
-    end
-
-    task.spawn(function()
-        task.wait(0.4)
-        local url = resolveImage()
-        local host = findHost()
-
-        if host then
-            local best
-            for _, d in ipairs(host:GetDescendants()) do
-                if d:IsA("ImageLabel") then
-                    if string.find(d.Image, tostring(IMAGE_ID), 1, true) then best = d; break end
-                    best = best or d
-                end
-            end
-            if best then
-                best.Image = url
-                best.ScaleType = Enum.ScaleType.Crop
-                best.BackgroundTransparency = 1
-                best.ImageTransparency = 0
-                best.Visible = true
-                if not best:FindFirstChildOfClass("UICorner") then
-                    new("UICorner", { CornerRadius = UDim.new(0, 14) }, best)
-                end
-                return
-            end
-        end
-
-        local parent = host and host.Parent
-        if parent then
-            local box = new("Frame", {
-                Name = "NexvyrInicioImagen",
-                Size = UDim2.new(1, 0, 0, THUMB_SIZE),
-                BackgroundTransparency = 1,
-                BorderSizePixel = 0,
-                LayoutOrder = host.LayoutOrder - 1,
-            }, parent)
-            local img = new("ImageLabel", {
-                AnchorPoint = Vector2.new(0.5, 0.5),
-                Position = UDim2.fromScale(0.5, 0.5),
-                Size = UDim2.fromOffset(THUMB_SIZE, THUMB_SIZE),
-                BackgroundColor3 = Color3.fromRGB(20, 20, 24),
-                BorderSizePixel = 0,
-                Image = url,
-                ScaleType = Enum.ScaleType.Crop,
-            }, box)
-            new("UICorner", { CornerRadius = UDim.new(0, 14) }, img)
-            new("UIStroke", { Color = Color3.fromRGB(255, 255, 255), Transparency = 0.8, Thickness = 1.5 }, img)
-        end
-    end)
-
-    Tabs.Inicio:Button({
-        Title = "Copiar link",
-        Icon = "solar:copy-bold",
-        Variant = "Primary",
-        Callback = function()
-            local copiar = setclipboard or toclipboard or (syn and syn.write_clipboard)
-            if copiar then
-                local ok = pcall(copiar, DISCORD_LINK)
-                WindUI:Notify({
-                    Title = ok and "¡Link copiado!" or "Error",
-                    Content = ok and "Pégalo en tu navegador para unirte al Discord." or "No se pudo copiar el link.",
-                    Icon = ok and "solar:check-circle-bold" or "solar:close-circle-bold",
-                    Duration = 4,
-                })
-            else
-                WindUI:Notify({
-                    Title = "No compatible",
-                    Content = "Tu executor no permite copiar al portapapeles.",
-                    Icon = "solar:close-circle-bold",
-                    Duration = 4,
-                })
-            end
-        end
-    })
 end
 
 Tabs.Aim:Section({ Title = "Auto Shoot", Icon = "solar:target-bold" })
@@ -3852,7 +3104,7 @@ persistToggle("TogHitboxInvisible", UIElements.TogHitboxInvisible, function() re
 persistToggle("TogHitbox", UIElements.TogHitbox, function() return hitboxEnabled end)
 persistToggle("TogKillAll", UIElements.TogKillAll, function() return KillAllEnabled end)
 
-Tabs.Invisible:Section({ Title = "Invisible", Icon = "solar:ghost-bold" })
+Tabs.Tramposo:Section({ Title = "Tramposo", Icon = "solar:bolt-bold" })
 
 local function AplicarInvisibilidadTransparencia(state)
     if player.Character then
@@ -3870,7 +3122,7 @@ local function AplicarInvisibilidadTransparencia(state)
     end
 end
 
-UIElements.TogInvisible = Tabs.Invisible:Toggle({
+UIElements.TogInvisible = Tabs.Tramposo:Toggle({
     Title = "Invisible",
     Value = false,
     Callback = function(Value)
@@ -3920,8 +3172,6 @@ player.CharacterAdded:Connect(function(character)
         AplicarInvisibilidadTransparencia(true)
     end
 end)
-
-Tabs.Tramposo:Section({ Title = "Tramposo", Icon = "solar:bolt-bold" })
 
 local SPEED = 28.7
 local JUMP_POWER = 45
@@ -4251,15 +3501,13 @@ local activeESPs = {}
 local MAX_ESP_DISTANCE = 1500
 
 local function espAnyActive()
-    return espEnabled and (espSettings.Glow or espSettings.Box or espSettings.Name)
+    return espEnabled and espSettings.Glow
 end
 
 local function cleanESP(targetPlayer)
     local current = activeESPs[targetPlayer]
     if not current then return end
     if current.Highlight then current.Highlight:Destroy() end
-    if current.Box then current.Box:Destroy() end
-    if current.NameGui then current.NameGui:Destroy() end
     activeESPs[targetPlayer] = nil
 end
 local function cleanAllESPs()
@@ -4283,24 +3531,6 @@ UIElements.ColEsp = Tabs.Vis:Colorpicker({
     Title = "Color del ESP",
     Default = Color3.fromRGB(255, 182, 193),
     Callback = function(c) espColor = c end
-})
-
-UIElements.TogEspBox = Tabs.Vis:Toggle({
-    Title = "Espiar con caja",
-    Value = false,
-    Callback = function(s)
-        espSettings.Box = s
-        refreshESP()
-    end
-})
-
-UIElements.TogEspName = Tabs.Vis:Toggle({
-    Title = "Espiar de nombre",
-    Value = false,
-    Callback = function(s)
-        espSettings.Name = s
-        refreshESP()
-    end
 })
 
 Tabs.Vis:Space()
@@ -4369,69 +3599,6 @@ nexvyrStartESPWorker = function()
                                 entry.Highlight = nil
                             end
 
-                            if espSettings.Box then
-                                if entry.Box and (entry.Box.Parent ~= espFolder or entry.Box.Adornee ~= character) then
-                                    entry.Box:Destroy()
-                                    entry.Box = nil
-                                end
-                                if not entry.Box then
-                                    local box = Instance.new("SelectionBox")
-                                    box.Name = other.Name .. "_Box"
-                                    box.Adornee = character
-                                    box.LineThickness = 0.05
-                                    box.SurfaceTransparency = 1
-                                    box.Color3 = espColor
-                                    box.SurfaceColor3 = espColor
-                                    box.Parent = espFolder
-                                    entry.Box = box
-                                end
-                                if entry.Box.Color3 ~= espColor then
-                                    entry.Box.Color3 = espColor
-                                    entry.Box.SurfaceColor3 = espColor
-                                end
-                            elseif entry.Box then
-                                entry.Box:Destroy()
-                                entry.Box = nil
-                            end
-
-                            if espSettings.Name then
-                                if entry.NameGui and (entry.NameGui.Parent ~= espFolder or entry.NameGui.Adornee ~= enemyHead) then
-                                    entry.NameGui:Destroy()
-                                    entry.NameGui = nil
-                                    entry.NameLabel = nil
-                                end
-                                if not entry.NameGui then
-                                    local billboard = Instance.new("BillboardGui")
-                                    billboard.Name = other.Name .. "_Name"
-                                    billboard.Adornee = enemyHead
-                                    billboard.AlwaysOnTop = true
-                                    billboard.Size = UDim2.fromOffset(200, 24)
-                                    billboard.StudsOffset = Vector3.new(0, 2.6, 0)
-                                    billboard.MaxDistance = MAX_ESP_DISTANCE
-                                    billboard.Parent = espFolder
-                                    local label = Instance.new("TextLabel")
-                                    label.Name = "Label"
-                                    label.BackgroundTransparency = 1
-                                    label.Size = UDim2.fromScale(1, 1)
-                                    label.Font = Enum.Font.GothamBold
-                                    label.TextSize = 14
-                                    label.TextColor3 = espColor
-                                    label.TextStrokeTransparency = 0.3
-                                    label.TextStrokeColor3 = Color3.new(0, 0, 0)
-                                    label.Text = other.DisplayName
-                                    label.Parent = billboard
-                                    entry.NameGui = billboard
-                                    entry.NameLabel = label
-                                end
-                                if entry.NameLabel then
-                                    if entry.NameLabel.Text ~= other.DisplayName then entry.NameLabel.Text = other.DisplayName end
-                                    if entry.NameLabel.TextColor3 ~= espColor then entry.NameLabel.TextColor3 = espColor end
-                                end
-                            elseif entry.NameGui then
-                                entry.NameGui:Destroy()
-                                entry.NameGui = nil
-                                entry.NameLabel = nil
-                            end
                         else
                             cleanESP(other)
                         end
@@ -4449,8 +3616,6 @@ end
 
 persistColor("ColEsp", UIElements.ColEsp, function() return espColor end, function(c) espColor = c end)
 persistToggle("TogEspGl", UIElements.TogEspGl, function() return espSettings.Glow end)
-persistToggle("TogEspBox", UIElements.TogEspBox, function() return espSettings.Box end)
-persistToggle("TogEspName", UIElements.TogEspName, function() return espSettings.Name end)
 persistToggle("TogEsp", UIElements.TogEsp, function() return espEnabled end)
 
 local FOVCircle
@@ -5099,7 +4264,7 @@ local HookedGunSounds = setmetatable({}, { __mode = "k" })
 
 local function MuteOwnSound(s)
     if not RecargaDisparoEnabled or not s:IsA("Sound") then return end
-    if s.Name == "NexvyrKillSound" or s.Name == "WindUI_MusicPlayer" or s.Name == "NexvyrShootSound" or s.Name == "NexvyrReloadSound" then return end
+    if s.Name == "NexvyrKillSound" or s.Name == "NexvyrShootSound" or s.Name == "NexvyrReloadSound" then return end
     if OriginalGunVolumes[s] == nil and s.Volume > 0 then OriginalGunVolumes[s] = s.Volume end
     if RecargaDisparoEnabled then s.Volume = 0 end
     if not HookedGunSounds[s] then
@@ -5240,277 +4405,6 @@ persistDropdown("DropShootSound", UIElements.DropShootSound, function() return S
 persistSlider("SliKillSoundVolume", UIElements.SliKillSoundVolume, function() return KillSoundVolume end)
 persistToggle("TogKillSound", UIElements.TogKillSound, function() return KillSoundEnabled end)
 persistToggle("TogShootReload", UIElements.TogShootReload, function() return RecargaDisparoEnabled end)
-end
-
-do
-local MusicPlayer = Instance.new("Sound")
-MusicPlayer.Name = "WindUI_MusicPlayer"
-MusicPlayer.Looped = false
-MusicPlayer.Volume = 0.5
-MusicPlayer.Parent = SoundService
-
-local SongList = {
-    { Name = "Canción 1", Id = "84944985070181" },
-    { Name = "Canción 2", Id = "87570666848900" },
-    { Name = "Canción 3", Id = "82746224492420" },
-    { Name = "Canción 4", Id = "71393805905055" },
-    { Name = "Canción 5", Id = "75688616622595" },
-    { Name = "Canción 6", Id = "135609653444873" },
-    { Name = "Canción 7", Id = "93699644879957" },
-    { Name = "Canción 8", Id = "110398343528156" },
-    { Name = "Canción 9", Id = "138863509657081" },
-    { Name = "Canción 10", Id = "115440201770223" },
-    { Name = "Canción 11", Id = "128048502331483" },
-    { Name = "Canción 12", Id = "135321902579514" },
-    { Name = "Canción 13", Id = "131465489873214" },
-}
-
-local CurrentIndex = 1
-local ShuffleOn = false
-local NowPlayingParagraph
-
-local function UpdateNowPlaying()
-    local song = SongList[CurrentIndex]
-    if song and NowPlayingParagraph then
-        NowPlayingParagraph:SetDesc(("%s • ID: %s • %s"):format(song.Name, song.Id, MusicPlayer.Playing and "Reproduciendo" or "Pausado"))
-    end
-end
-
-local function LoadSong(index)
-    if not SongList[index] then return end
-    CurrentIndex = index
-    MusicPlayer:Stop()
-    MusicPlayer.SoundId = "rbxassetid://" .. SongList[index].Id
-    MusicPlayer:Play()
-    UpdateNowPlaying()
-end
-
-local function PlaySong()
-    if MusicPlayer.SoundId == "" then LoadSong(CurrentIndex)
-    elseif not MusicPlayer.Playing then MusicPlayer:Resume() end
-    UpdateNowPlaying()
-end
-
-local function PauseSong()
-    if MusicPlayer.Playing then MusicPlayer:Pause() end
-    UpdateNowPlaying()
-end
-
-local function StopSong()
-    MusicPlayer:Stop()
-    MusicPlayer.SoundId = ""
-    UpdateNowPlaying()
-end
-
-local function NextSong()
-    local nextIndex
-    if ShuffleOn then nextIndex = math.random(1, #SongList)
-    else
-        nextIndex = CurrentIndex + 1
-        if nextIndex > #SongList then nextIndex = 1 end
-    end
-    LoadSong(nextIndex)
-end
-
-local function PrevSong()
-    local prevIndex
-    if ShuffleOn then prevIndex = math.random(1, #SongList)
-    else
-        prevIndex = CurrentIndex - 1
-        if prevIndex < 1 then prevIndex = #SongList end
-    end
-    LoadSong(prevIndex)
-end
-
-MusicPlayer.Ended:Connect(function() NextSong() end)
-
-Tabs.Music:Section({ Title = "Ahora suena", Icon = "solar:music-note-bold" })
-NowPlayingParagraph = Tabs.Music:Paragraph({ Title = "Sin canción seleccionada", Icon = "solar:music-note-2-bold" })
-
-Tabs.Music:Section({ Title = "Controles", Icon = "solar:tuning-2-bold" })
-Tabs.Music:Button({ Title = "Anterior", Icon = "solar:skip-previous-bold", Variant = "Secondary", Callback = function() PrevSong() end })
-Tabs.Music:Button({ Title = "Siguiente", Icon = "solar:skip-next-bold", Variant = "Secondary", Callback = function() NextSong() end })
-Tabs.Music:Button({ Title = "Reproducir", Icon = "solar:play-circle-bold", Variant = "Primary", Callback = function() PlaySong() end })
-Tabs.Music:Button({ Title = "Pausar", Icon = "solar:pause-circle-bold", Variant = "Secondary", Callback = function() PauseSong() end })
-Tabs.Music:Button({ Title = "Detener", Icon = "solar:close-circle-bold", Variant = "Danger", Callback = function() StopSong() end })
-
-end
-
-local KorbloxEnabled = false
-local HeadlessEnabled = false
-local applyKorblox, removeKorblox, setHeadless
-
-do
-local KORBLOX_ASSETS = {
-    ["Right Leg"] = {
-        id = "rbxassetid://139607718", targetBodyPart = "RightUpperLeg",
-        partsToHide = {"RightUpperLeg", "RightLowerLeg", "RightFoot"},
-        scale = Vector3.new(1.0, 1.0, 1.0), audio = "rbxassetid://135315310485417",
-        offset = CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, 0),
-    }
-}
-
-local korbloxSavedTransparency = {}
-
-local function attachKorbloxMesh(itemName, config)
-    local character = player.Character
-    if not character then return false end
-    local targetPart = character:WaitForChild(config.targetBodyPart, 2)
-    if not targetPart then return false end
-    local oldAsset = character:FindFirstChild("Korblox_" .. itemName:gsub("%s+", ""))
-    if oldAsset then oldAsset:Destroy() end
-    for _, partName in ipairs(config.partsToHide) do
-        local limb = character:FindFirstChild(partName)
-        if limb and limb:IsA("BasePart") then
-            if korbloxSavedTransparency[partName] == nil then korbloxSavedTransparency[partName] = limb.Transparency end
-            limb.Transparency = 1
-        end
-    end
-    local success, objects = pcall(function() return game:GetObjects(config.id) end)
-    if not success or not objects or #objects == 0 then return false end
-    local assetModel = objects[1]
-    assetModel.Name = "Korblox_" .. itemName:gsub("%s+", "")
-    local mainMesh = assetModel:IsA("BasePart") and assetModel or assetModel:FindFirstChildWhichIsA("BasePart", true)
-    if not mainMesh then return false end
-    mainMesh.Size = mainMesh.Size * config.scale
-    mainMesh.CanCollide = false
-    mainMesh.CFrame = targetPart.CFrame * config.offset
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0 = targetPart
-    weld.Part1 = mainMesh
-    weld.Parent = mainMesh
-    assetModel.Parent = character
-    if config.audio then
-        local sound = Instance.new("Sound")
-        sound.SoundId = config.audio
-        sound.Volume = 0.5
-        sound.Parent = mainMesh
-        sound:Play()
-        game:GetService("Debris"):AddItem(sound, 3)
-    end
-    return true
-end
-
-function applyKorblox()
-    if not KorbloxEnabled then return end
-    local config = KORBLOX_ASSETS["Right Leg"]
-    local ok = attachKorbloxMesh("Right Leg", config)
-    if not ok then
-        task.wait(0.2)
-        attachKorbloxMesh("Right Leg", config)
-    end
-end
-
-function removeKorblox()
-    local character = player.Character
-    if not character then return end
-    local assetName = "Korblox_RightLeg"
-    local asset = character:FindFirstChild(assetName)
-    if asset then pcall(function() asset:Destroy() end) end
-    for partName, orig in pairs(korbloxSavedTransparency) do
-        local limb = character:FindFirstChild(partName)
-        if limb and limb:IsA("BasePart") then pcall(function() limb.Transparency = orig end) end
-    end
-    korbloxSavedTransparency = {}
-end
-
-local HEADLESS_ASSET_ID = 134082579
-local insertedHeadlessAccessory = nil
-
-local function setHeadlessTransparency(enabled)
-    local character = player.Character
-    if not character then return end
-    local head = character:FindFirstChild("Head")
-    if head then
-        head.Transparency = enabled and 1 or 0
-        local faceDecal = head:FindFirstChildOfClass("Decal")
-        if faceDecal then faceDecal.Transparency = enabled and 1 or 0 end
-    end
-end
-
-function setHeadless(enabled)
-    local character = player.Character
-    if not character then return end
-    if enabled then
-        character:WaitForChild("Head", 2)
-        setHeadlessTransparency(true)
-        if insertedHeadlessAccessory and insertedHeadlessAccessory.Parent ~= character then insertedHeadlessAccessory = nil end
-        if insertedHeadlessAccessory then return end
-        local success, result = pcall(function()
-            return game:GetObjects("rbxassetid://" .. tostring(HEADLESS_ASSET_ID))
-        end)
-        if success and result and #result > 0 then
-            local rootModel = result[1]
-            local model = nil
-            if rootModel:IsA("Accessory") then
-                model = rootModel
-            else
-                for _, descendant in ipairs(rootModel:GetDescendants()) do
-                    if descendant:IsA("Accessory") then model = descendant break end
-                end
-                model = model or (rootModel:IsA("Model") and rootModel or nil)
-            end
-            if model then
-                if model:IsA("Accessory") then
-                    local humanoid = character:FindFirstChildOfClass("Humanoid")
-                    local addSuccess = humanoid and pcall(function() humanoid:AddAccessory(model) end)
-                    if not addSuccess then model.Parent = character end
-                else
-                    model.Parent = character
-                end
-                insertedHeadlessAccessory = model
-            end
-        else
-            warn("[Headless] Failed to load headless asset: " .. tostring(result))
-        end
-    else
-        setHeadlessTransparency(false)
-        if insertedHeadlessAccessory then
-            insertedHeadlessAccessory:Destroy()
-            insertedHeadlessAccessory = nil
-        end
-    end
-end
-
-player.CharacterAdded:Connect(function(character)
-    korbloxSavedTransparency = {}
-    insertedHeadlessAccessory = nil
-    if KorbloxEnabled then
-        task.spawn(function()
-            task.wait(0.1)
-            applyKorblox()
-        end)
-    end
-    if HeadlessEnabled then
-        task.spawn(function()
-            task.wait(0.1)
-            setHeadless(true)
-        end)
-    end
-end)
-
-Tabs.Items:Section({ Title = "Items", Icon = "solar:crown-star-bold" })
-
-UIElements.TogHeadless = Tabs.Items:Toggle({
-    Title = "Aplicar Headless",
-    Value = false,
-    Callback = function(v)
-        HeadlessEnabled = v
-        if v then setHeadless(true) else setHeadless(false) end
-    end
-})
-
-UIElements.TogKorblox = Tabs.Items:Toggle({
-    Title = "Aplicar Korblox",
-    Value = false,
-    Callback = function(v)
-        KorbloxEnabled = v
-        if v then applyKorblox() else removeKorblox() end
-    end
-})
-
-persistToggle("TogHeadless", UIElements.TogHeadless, function() return HeadlessEnabled end)
-persistToggle("TogKorblox", UIElements.TogKorblox, function() return KorbloxEnabled end)
 end
 
 Tabs.Identidad:Section({ Title = "identidad falsa", Icon = "solar:user-id-bold" })
@@ -5821,725 +4715,6 @@ player.CharacterAdded:Connect(function()
         updateSystem()
     end
 end)
-end
-
-do
-Tabs.Graficos:Section({ Title = "Presets de Iluminación", Icon = "solar:palette-bold" })
-
-local gfxActive = {}
-
-local nocheSangrientaEffects = {}
-local atardecerEffects = {}
-local sinVidaEffects = {}
-local nocheSangrientaSkyFolder = nil
-
-local function SaveLightingOriginal(tag)
-    local Lighting = game:GetService("Lighting")
-    if Lighting:GetAttribute("OrigSaved_" .. tag) then return end
-    Lighting:SetAttribute("Orig_Ambient_" .. tag, Lighting.Ambient)
-    Lighting:SetAttribute("Orig_OutdoorAmbient_" .. tag, Lighting.OutdoorAmbient)
-    Lighting:SetAttribute("Orig_Brightness_" .. tag, Lighting.Brightness)
-    Lighting:SetAttribute("Orig_ClockTime_" .. tag, Lighting.ClockTime)
-    Lighting:SetAttribute("Orig_FogColor_" .. tag, Lighting.FogColor)
-    Lighting:SetAttribute("Orig_FogEnd_" .. tag, Lighting.FogEnd)
-    Lighting:SetAttribute("Orig_FogStart_" .. tag, Lighting.FogStart)
-    Lighting:SetAttribute("Orig_ColorShift_Top_" .. tag, Lighting.ColorShift_Top)
-    Lighting:SetAttribute("Orig_ColorShift_Bottom_" .. tag, Lighting.ColorShift_Bottom)
-    Lighting:SetAttribute("Orig_ExposureCompensation_" .. tag, Lighting.ExposureCompensation)
-    Lighting:SetAttribute("Orig_GlobalShadows_" .. tag, Lighting.GlobalShadows)
-    Lighting:SetAttribute("Orig_EnvironmentDiffuseScale_" .. tag, Lighting.EnvironmentDiffuseScale)
-    Lighting:SetAttribute("Orig_EnvironmentSpecularScale_" .. tag, Lighting.EnvironmentSpecularScale)
-    Lighting:SetAttribute("OrigSaved_" .. tag, true)
-end
-
-local function RestoreLighting(tag)
-    local Lighting = game:GetService("Lighting")
-    if not Lighting:GetAttribute("OrigSaved_" .. tag) then return end
-    Lighting.Ambient = Lighting:GetAttribute("Orig_Ambient_" .. tag)
-    Lighting.OutdoorAmbient = Lighting:GetAttribute("Orig_OutdoorAmbient_" .. tag)
-    Lighting.Brightness = Lighting:GetAttribute("Orig_Brightness_" .. tag)
-    Lighting.ClockTime = Lighting:GetAttribute("Orig_ClockTime_" .. tag)
-    Lighting.FogColor = Lighting:GetAttribute("Orig_FogColor_" .. tag)
-    Lighting.FogEnd = Lighting:GetAttribute("Orig_FogEnd_" .. tag)
-    Lighting.FogStart = Lighting:GetAttribute("Orig_FogStart_" .. tag)
-    Lighting.ColorShift_Top = Lighting:GetAttribute("Orig_ColorShift_Top_" .. tag)
-    Lighting.ColorShift_Bottom = Lighting:GetAttribute("Orig_ColorShift_Bottom_" .. tag)
-    Lighting.ExposureCompensation = Lighting:GetAttribute("Orig_ExposureCompensation_" .. tag)
-    Lighting.GlobalShadows = Lighting:GetAttribute("Orig_GlobalShadows_" .. tag)
-    Lighting.EnvironmentDiffuseScale = Lighting:GetAttribute("Orig_EnvironmentDiffuseScale_" .. tag)
-    Lighting.EnvironmentSpecularScale = Lighting:GetAttribute("Orig_EnvironmentSpecularScale_" .. tag)
-    Lighting:SetAttribute("OrigSaved_" .. tag, nil)
-end
-
-local function ClearEffects(list)
-    for _, v in ipairs(list) do
-        pcall(function() v:Destroy() end)
-    end
-    table.clear(list)
-end
-
-local function ApplyNocheSangrienta(state)
-    local Lighting = game:GetService("Lighting")
-    if state then
-        SaveLightingOriginal("NS")
-        ClearEffects(nocheSangrientaEffects)
-
-        if nocheSangrientaSkyFolder then nocheSangrientaSkyFolder:Destroy() end
-        nocheSangrientaSkyFolder = Instance.new("Folder")
-        nocheSangrientaSkyFolder.Name = "NS_SkyX"
-        nocheSangrientaSkyFolder.Parent = workspace
-
-        local function makeBeam(angle)
-            local beam = Instance.new("Part")
-            beam.Anchored = true
-            beam.CanCollide = false
-            beam.CanQuery = false
-            beam.Material = Enum.Material.Neon
-            beam.Color = Color3.fromRGB(255, 55, 55)
-            beam.Transparency = 0.1
-            beam.Size = Vector3.new(2600, 26, 26)
-            beam.CFrame = CFrame.new(0, 3200, -2200) * CFrame.Angles(0, 0, math.rad(angle))
-            beam.Parent = nocheSangrientaSkyFolder
-            table.insert(nocheSangrientaEffects, beam)
-        end
-        makeBeam(45)
-        makeBeam(-45)
-
-        local glowPart = Instance.new("Part")
-        glowPart.Anchored = true
-        glowPart.CanCollide = false
-        glowPart.CanQuery = false
-        glowPart.Material = Enum.Material.Neon
-        glowPart.Color = Color3.fromRGB(255, 110, 110)
-        glowPart.Transparency = 0.65
-        glowPart.Shape = Enum.PartType.Ball
-        glowPart.Size = Vector3.new(420, 420, 420)
-        glowPart.CFrame = CFrame.new(0, 3200, -2200)
-        glowPart.Parent = nocheSangrientaSkyFolder
-        table.insert(nocheSangrientaEffects, glowPart)
-
-        local light1 = Instance.new("PointLight")
-        light1.Color = Color3.fromRGB(255, 80, 80)
-        light1.Range = 300
-        light1.Brightness = 3
-        light1.Parent = glowPart
-        table.insert(nocheSangrientaEffects, light1)
-
-        local sky = Instance.new("Sky")
-        sky.Name = "NS_Sky"
-        sky.StarCount = 9000
-        sky.MoonAngularSize = 30
-        sky.SunAngularSize = 0
-        sky.CelestialBodiesShown = true
-        sky.Parent = Lighting
-        table.insert(nocheSangrientaEffects, sky)
-
-        local cc = Instance.new("ColorCorrectionEffect")
-        cc.Name = "NS_CC"
-        cc.Brightness = 0.05
-        cc.Contrast = 0.32
-        cc.Saturation = -0.15
-        cc.TintColor = Color3.fromRGB(255, 130, 130)
-        cc.Parent = Lighting
-        table.insert(nocheSangrientaEffects, cc)
-
-        local bloom = Instance.new("BloomEffect")
-        bloom.Name = "NS_Bloom"
-        bloom.Intensity = 1
-        bloom.Size = 90
-        bloom.Threshold = 0.45
-        bloom.Parent = Lighting
-        table.insert(nocheSangrientaEffects, bloom)
-
-        local blur = Instance.new("BlurEffect")
-        blur.Name = "NS_Blur"
-        blur.Size = 3
-        blur.Parent = Lighting
-        table.insert(nocheSangrientaEffects, blur)
-
-        local atmo = Instance.new("Atmosphere")
-        atmo.Name = "NS_Atmo"
-        atmo.Density = 0.42
-        atmo.Offset = 0
-        atmo.Color = Color3.fromRGB(60, 12, 12)
-        atmo.Decay = Color3.fromRGB(80, 20, 20)
-        atmo.Glare = 0.5
-        atmo.Haze = 1.6
-        atmo.Parent = Lighting
-        table.insert(nocheSangrientaEffects, atmo)
-
-        Lighting.ClockTime = 0
-        Lighting.Brightness = 1.2
-        Lighting.Ambient = Color3.fromRGB(130, 110, 110)
-        Lighting.OutdoorAmbient = Color3.fromRGB(180, 140, 140)
-        Lighting.FogColor = Color3.fromRGB(22, 5, 5)
-        Lighting.FogEnd = 1200
-        Lighting.FogStart = 150
-        Lighting.ColorShift_Top = Color3.fromRGB(125, 25, 25)
-        Lighting.ColorShift_Bottom = Color3.fromRGB(65, 8, 8)
-        Lighting.ExposureCompensation = -0.2
-        Lighting.GlobalShadows = true
-        Lighting.EnvironmentDiffuseScale = 0.5
-        Lighting.EnvironmentSpecularScale = 0.5
-    else
-        ClearEffects(nocheSangrientaEffects)
-        if nocheSangrientaSkyFolder then
-            nocheSangrientaSkyFolder:Destroy()
-            nocheSangrientaSkyFolder = nil
-        end
-        RestoreLighting("NS")
-    end
-end
-
-local function ApplyAtardecer(state)
-    local Lighting = game:GetService("Lighting")
-    if state then
-        SaveLightingOriginal("AF")
-        ClearEffects(atardecerEffects)
-
-        local cc = Instance.new("ColorCorrectionEffect")
-        cc.Name = "AF_CC"
-        cc.Brightness = 0.05
-        cc.Contrast = 0.14
-        cc.Saturation = 0.22
-        cc.TintColor = Color3.fromRGB(255, 205, 165)
-        cc.Parent = Lighting
-        table.insert(atardecerEffects, cc)
-
-        local bloom = Instance.new("BloomEffect")
-        bloom.Name = "AF_Bloom"
-        bloom.Intensity = 0.32
-        bloom.Size = 40
-        bloom.Threshold = 0.92
-        bloom.Parent = Lighting
-        table.insert(atardecerEffects, bloom)
-
-        local rays = Instance.new("SunRaysEffect")
-        rays.Name = "AF_Rays"
-        rays.Intensity = 0.15
-        rays.Spread = 0.9
-        rays.Parent = Lighting
-        table.insert(atardecerEffects, rays)
-
-        local sky = Instance.new("Sky")
-        sky.Name = "AF_Sky"
-        sky.SunAngularSize = 18
-        sky.MoonAngularSize = 0
-        sky.StarCount = 2000
-        sky.Parent = Lighting
-        table.insert(atardecerEffects, sky)
-
-        local atmo = Instance.new("Atmosphere")
-        atmo.Name = "AF_Atmo"
-        atmo.Density = 0.36
-        atmo.Offset = 0.1
-        atmo.Color = Color3.fromRGB(255, 185, 135)
-        atmo.Decay = Color3.fromRGB(255, 125, 85)
-        atmo.Glare = 0.2
-        atmo.Haze = 1.2
-        atmo.Parent = Lighting
-        table.insert(atardecerEffects, atmo)
-
-        Lighting.ClockTime = 6.3
-        Lighting.Brightness = 2.4
-        Lighting.Ambient = Color3.fromRGB(85, 62, 55)
-        Lighting.OutdoorAmbient = Color3.fromRGB(125, 92, 80)
-        Lighting.FogColor = Color3.fromRGB(240, 185, 145)
-        Lighting.FogEnd = 2500
-        Lighting.FogStart = 200
-        Lighting.ColorShift_Top = Color3.fromRGB(255, 185, 105)
-        Lighting.ColorShift_Bottom = Color3.fromRGB(205, 105, 85)
-        Lighting.ExposureCompensation = 0.08
-        Lighting.GlobalShadows = true
-        Lighting.EnvironmentDiffuseScale = 0.8
-        Lighting.EnvironmentSpecularScale = 0.6
-    else
-        ClearEffects(atardecerEffects)
-        RestoreLighting("AF")
-    end
-end
-
-local function ApplySinVida(state)
-    local Lighting = game:GetService("Lighting")
-    if state then
-        SaveLightingOriginal("SV")
-        ClearEffects(sinVidaEffects)
-
-        local cc = Instance.new("ColorCorrectionEffect")
-        cc.Name = "SV_CC"
-        cc.Brightness = 0.05
-        cc.Contrast = 0.22
-        cc.Saturation = -1
-        cc.TintColor = Color3.fromRGB(222, 226, 232)
-        cc.Parent = Lighting
-        table.insert(sinVidaEffects, cc)
-
-        local bloom = Instance.new("BloomEffect")
-        bloom.Name = "SV_Bloom"
-        bloom.Intensity = 1.25
-        bloom.Size = 75
-        bloom.Threshold = 0.38
-        bloom.Parent = Lighting
-        table.insert(sinVidaEffects, bloom)
-
-        local sky = Instance.new("Sky")
-        sky.Name = "SV_Sky"
-        sky.StarCount = 0
-        sky.SunAngularSize = 0
-        sky.MoonAngularSize = 0
-        sky.CelestialBodiesShown = false
-        sky.Parent = Lighting
-        table.insert(sinVidaEffects, sky)
-
-        local atmo = Instance.new("Atmosphere")
-        atmo.Name = "SV_Atmo"
-        atmo.Density = 0.3
-        atmo.Offset = 0.1
-        atmo.Color = Color3.fromRGB(180, 185, 190)
-        atmo.Decay = Color3.fromRGB(140, 145, 150)
-        atmo.Glare = 0
-        atmo.Haze = 1.0
-        atmo.Parent = Lighting
-        table.insert(sinVidaEffects, atmo)
-
-        Lighting.ClockTime = 14
-        Lighting.Brightness = 2.2
-        Lighting.Ambient = Color3.fromRGB(92, 96, 100)
-        Lighting.OutdoorAmbient = Color3.fromRGB(132, 136, 140)
-        Lighting.FogColor = Color3.fromRGB(172, 176, 180)
-        Lighting.FogEnd = 3000
-        Lighting.FogStart = 200
-        Lighting.ColorShift_Top = Color3.fromRGB(152, 156, 160)
-        Lighting.ColorShift_Bottom = Color3.fromRGB(122, 126, 130)
-        Lighting.ExposureCompensation = 0
-        Lighting.GlobalShadows = true
-        Lighting.EnvironmentDiffuseScale = 0.6
-        Lighting.EnvironmentSpecularScale = 0.3
-    else
-        ClearEffects(sinVidaEffects)
-        RestoreLighting("SV")
-    end
-end
-
-local elFinalEffects = {}
-local elFinalClouds = nil
-local elFinalQuality = nil
-local elFinalTech = nil
-
-local function ApplyElFinal(state)
-    local Lighting = game:GetService("Lighting")
-    local terrain = workspace:FindFirstChildOfClass("Terrain")
-
-    if state then
-        SaveLightingOriginal("EF")
-        if Lighting:GetAttribute("Orig_ShadowSoftness_EF") == nil then
-            pcall(function() Lighting:SetAttribute("Orig_ShadowSoftness_EF", Lighting.ShadowSoftness) end)
-        end
-        ClearEffects(elFinalEffects)
-
-        local function add(inst)
-            inst.Parent = Lighting
-            table.insert(elFinalEffects, inst)
-            return inst
-        end
-
-        local cc = Instance.new("ColorCorrectionEffect")
-        cc.Name = "EF_CC"
-        cc.Brightness = -0.01
-        cc.Contrast = 0.4
-        cc.Saturation = 0.14
-        cc.TintColor = Color3.fromRGB(255, 238, 220)
-        add(cc)
-
-        local bloom = Instance.new("BloomEffect")
-        bloom.Name = "EF_Bloom"
-        bloom.Intensity = 0.55
-        bloom.Size = 28
-        bloom.Threshold = 0.9
-        add(bloom)
-
-        local rays = Instance.new("SunRaysEffect")
-        rays.Name = "EF_Rays"
-        rays.Intensity = 0.3
-        rays.Spread = 1
-        add(rays)
-
-        local sky = Instance.new("Sky")
-        sky.Name = "EF_Sky"
-        sky.SunAngularSize = 24
-        sky.MoonAngularSize = 11
-        sky.StarCount = 3000
-        sky.CelestialBodiesShown = true
-        add(sky)
-
-        local atmo = Instance.new("Atmosphere")
-        atmo.Name = "EF_Atmo"
-        atmo.Density = 0.32
-        atmo.Offset = 0.2
-        atmo.Color = Color3.fromRGB(198, 172, 150)
-        atmo.Decay = Color3.fromRGB(92, 70, 80)
-        atmo.Glare = 0.7
-        atmo.Haze = 1.9
-        add(atmo)
-
-        if terrain then
-            local clouds = terrain:FindFirstChildOfClass("Clouds")
-            if clouds then
-                elFinalClouds = { obj = clouds, Enabled = clouds.Enabled, Cover = clouds.Cover, Density = clouds.Density, Color = clouds.Color }
-            else
-                clouds = Instance.new("Clouds")
-                clouds.Parent = terrain
-                elFinalClouds = { created = clouds }
-            end
-            clouds.Enabled = true
-            clouds.Cover = 0.78
-            clouds.Density = 0.72
-            clouds.Color = Color3.fromRGB(70, 62, 72)
-        end
-
-        Lighting.ClockTime = 17.3
-        Lighting.Brightness = 3.4
-        Lighting.Ambient = Color3.fromRGB(38, 42, 62)
-        Lighting.OutdoorAmbient = Color3.fromRGB(78, 82, 108)
-        Lighting.ColorShift_Top = Color3.fromRGB(255, 196, 120)
-        Lighting.ColorShift_Bottom = Color3.fromRGB(30, 34, 56)
-        Lighting.ExposureCompensation = 0.15
-        Lighting.FogColor = Color3.fromRGB(52, 48, 60)
-        Lighting.FogStart = 250
-        Lighting.FogEnd = 2600
-        Lighting.GlobalShadows = true
-        Lighting.EnvironmentDiffuseScale = 0.9
-        Lighting.EnvironmentSpecularScale = 1
-
-        pcall(function() Lighting.ShadowSoftness = 0.03 end)
-
-        pcall(function()
-            if gethiddenproperty and sethiddenproperty then
-                if elFinalTech == nil then elFinalTech = gethiddenproperty(Lighting, "Technology") end
-                sethiddenproperty(Lighting, "Technology", Enum.Technology.Future)
-            end
-        end)
-
-        pcall(function()
-            local r = settings().Rendering
-            if elFinalQuality == nil then elFinalQuality = r.QualityLevel end
-            r.QualityLevel = Enum.QualityLevel.Level21
-        end)
-    else
-        ClearEffects(elFinalEffects)
-
-        if elFinalClouds then
-            pcall(function()
-                if elFinalClouds.created then
-                    elFinalClouds.created:Destroy()
-                elseif elFinalClouds.obj then
-                    local o = elFinalClouds.obj
-                    o.Enabled = elFinalClouds.Enabled
-                    o.Cover = elFinalClouds.Cover
-                    o.Density = elFinalClouds.Density
-                    o.Color = elFinalClouds.Color
-                end
-            end)
-            elFinalClouds = nil
-        end
-
-        RestoreLighting("EF")
-
-        local softness = Lighting:GetAttribute("Orig_ShadowSoftness_EF")
-        if softness ~= nil then
-            pcall(function() Lighting.ShadowSoftness = softness end)
-            Lighting:SetAttribute("Orig_ShadowSoftness_EF", nil)
-        end
-
-        if elFinalTech ~= nil then
-            pcall(function()
-                if sethiddenproperty then sethiddenproperty(Lighting, "Technology", elFinalTech) end
-            end)
-            elFinalTech = nil
-        end
-
-        if elFinalQuality ~= nil then
-            pcall(function() settings().Rendering.QualityLevel = elFinalQuality end)
-            elFinalQuality = nil
-        end
-    end
-end
-
-local skypeEffects = {}
-local skypeStash = {}
-local skypeClouds = nil
-local skypeWater = nil
-local skypeQuality = nil
-local skypeTech = nil
-
-local function ApplySkype(state)
-    local Lighting = game:GetService("Lighting")
-    local terrain = workspace:FindFirstChildOfClass("Terrain")
-
-    if state then
-        SaveLightingOriginal("SK")
-        if Lighting:GetAttribute("Orig_ShadowSoftness_SK") == nil then
-            pcall(function() Lighting:SetAttribute("Orig_ShadowSoftness_SK", Lighting.ShadowSoftness) end)
-        end
-        ClearEffects(skypeEffects)
-
-        table.clear(skypeStash)
-        for _, child in ipairs(Lighting:GetChildren()) do
-            if child:IsA("Sky") or child:IsA("Atmosphere") then
-                table.insert(skypeStash, child)
-            end
-        end
-        for _, inst in ipairs(skypeStash) do
-            pcall(function() inst.Parent = nil end)
-        end
-
-        local function add(inst)
-            inst.Parent = Lighting
-            table.insert(skypeEffects, inst)
-            return inst
-        end
-
-        local sky = Instance.new("Sky")
-        sky.Name = "SK_Sky"
-        sky.SunAngularSize = 21
-        sky.MoonAngularSize = 11
-        sky.StarCount = 3000
-        sky.CelestialBodiesShown = true
-        add(sky)
-
-        local atmo = Instance.new("Atmosphere")
-        atmo.Name = "SK_Atmo"
-        atmo.Density = 0.34
-        atmo.Offset = 0.25
-        atmo.Color = Color3.fromRGB(170, 197, 232)
-        atmo.Decay = Color3.fromRGB(255, 196, 148)
-        atmo.Glare = 0.45
-        atmo.Haze = 1.8
-        add(atmo)
-
-        local cc = Instance.new("ColorCorrectionEffect")
-        cc.Name = "SK_CC"
-        cc.Brightness = 0
-        cc.Contrast = 0.2
-        cc.Saturation = 0.28
-        cc.TintColor = Color3.fromRGB(255, 249, 242)
-        add(cc)
-
-        local bloom = Instance.new("BloomEffect")
-        bloom.Name = "SK_Bloom"
-        bloom.Intensity = 0.45
-        bloom.Size = 36
-        bloom.Threshold = 0.95
-        add(bloom)
-
-        local rays = Instance.new("SunRaysEffect")
-        rays.Name = "SK_Rays"
-        rays.Intensity = 0.2
-        rays.Spread = 0.85
-        add(rays)
-
-        local dof = Instance.new("DepthOfFieldEffect")
-        dof.Name = "SK_DOF"
-        dof.FarIntensity = 0.12
-        dof.NearIntensity = 0
-        dof.FocusDistance = 120
-        dof.InFocusRadius = 90
-        add(dof)
-
-        if terrain then
-            local clouds = terrain:FindFirstChildOfClass("Clouds")
-            if clouds then
-                skypeClouds = { obj = clouds, Enabled = clouds.Enabled, Cover = clouds.Cover, Density = clouds.Density, Color = clouds.Color }
-            else
-                clouds = Instance.new("Clouds")
-                clouds.Parent = terrain
-                skypeClouds = { created = clouds }
-            end
-            clouds.Enabled = true
-            clouds.Cover = 0.6
-            clouds.Density = 0.65
-            clouds.Color = Color3.fromRGB(255, 255, 255)
-
-            if not skypeWater then
-                skypeWater = {
-                    WaterColor = terrain.WaterColor,
-                    WaterReflectance = terrain.WaterReflectance,
-                    WaterTransparency = terrain.WaterTransparency,
-                    WaterWaveSize = terrain.WaterWaveSize,
-                    WaterWaveSpeed = terrain.WaterWaveSpeed,
-                }
-            end
-            pcall(function()
-                terrain.WaterColor = Color3.fromRGB(28, 128, 158)
-                terrain.WaterReflectance = 0.9
-                terrain.WaterTransparency = 0.85
-                terrain.WaterWaveSize = 0.35
-                terrain.WaterWaveSpeed = 14
-            end)
-        end
-
-        Lighting.ClockTime = 16.2
-        Lighting.Brightness = 3
-        Lighting.Ambient = Color3.fromRGB(70, 76, 98)
-        Lighting.OutdoorAmbient = Color3.fromRGB(112, 122, 148)
-        Lighting.ColorShift_Top = Color3.fromRGB(255, 236, 205)
-        Lighting.ColorShift_Bottom = Color3.fromRGB(60, 70, 100)
-        Lighting.ExposureCompensation = 0.2
-        Lighting.FogColor = Color3.fromRGB(190, 205, 226)
-        Lighting.FogStart = 400
-        Lighting.FogEnd = 4500
-        Lighting.GlobalShadows = true
-        Lighting.EnvironmentDiffuseScale = 1
-        Lighting.EnvironmentSpecularScale = 1
-
-        pcall(function() Lighting.ShadowSoftness = 0.12 end)
-
-        pcall(function()
-            if gethiddenproperty and sethiddenproperty then
-                if skypeTech == nil then skypeTech = gethiddenproperty(Lighting, "Technology") end
-                sethiddenproperty(Lighting, "Technology", Enum.Technology.Future)
-            end
-        end)
-
-        pcall(function()
-            local r = settings().Rendering
-            if skypeQuality == nil then skypeQuality = r.QualityLevel end
-            r.QualityLevel = Enum.QualityLevel.Level21
-        end)
-    else
-        ClearEffects(skypeEffects)
-
-        for _, inst in ipairs(skypeStash) do
-            pcall(function() inst.Parent = Lighting end)
-        end
-        table.clear(skypeStash)
-
-        if skypeClouds then
-            pcall(function()
-                if skypeClouds.created then
-                    skypeClouds.created:Destroy()
-                elseif skypeClouds.obj then
-                    local o = skypeClouds.obj
-                    o.Enabled = skypeClouds.Enabled
-                    o.Cover = skypeClouds.Cover
-                    o.Density = skypeClouds.Density
-                    o.Color = skypeClouds.Color
-                end
-            end)
-            skypeClouds = nil
-        end
-
-        if skypeWater and terrain then
-            pcall(function()
-                for k, v in pairs(skypeWater) do terrain[k] = v end
-            end)
-            skypeWater = nil
-        end
-
-        RestoreLighting("SK")
-
-        local softness = Lighting:GetAttribute("Orig_ShadowSoftness_SK")
-        if softness ~= nil then
-            pcall(function() Lighting.ShadowSoftness = softness end)
-            Lighting:SetAttribute("Orig_ShadowSoftness_SK", nil)
-        end
-
-        if skypeTech ~= nil then
-            pcall(function()
-                if sethiddenproperty then sethiddenproperty(Lighting, "Technology", skypeTech) end
-            end)
-            skypeTech = nil
-        end
-
-        if skypeQuality ~= nil then
-            pcall(function() settings().Rendering.QualityLevel = skypeQuality end)
-            skypeQuality = nil
-        end
-    end
-end
-
-local nocheTog, atardecerTog, sinVidaTog, finalTog, skypeTog
-
-nocheTog = Tabs.Graficos:Toggle({
-    Title = "Noche Sangrienta",
-    Value = false,
-    Callback = function(state)
-        gfxActive.Noche = state
-        if state then
-            if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
-            if sinVidaTog then pcall(function() sinVidaTog:Set(false) end) end
-            if finalTog then pcall(function() finalTog:Set(false) end) end
-            if skypeTog then pcall(function() skypeTog:Set(false) end) end
-        end
-        ApplyNocheSangrienta(state)
-    end
-})
-
-atardecerTog = Tabs.Graficos:Toggle({
-    Title = "Atardecer Fantástico",
-    Value = false,
-    Callback = function(state)
-        gfxActive.Atardecer = state
-        if state then
-            if nocheTog then pcall(function() nocheTog:Set(false) end) end
-            if sinVidaTog then pcall(function() sinVidaTog:Set(false) end) end
-            if finalTog then pcall(function() finalTog:Set(false) end) end
-            if skypeTog then pcall(function() skypeTog:Set(false) end) end
-        end
-        ApplyAtardecer(state)
-    end
-})
-
-sinVidaTog = Tabs.Graficos:Toggle({
-    Title = "Sin Vida",
-    Value = false,
-    Callback = function(state)
-        gfxActive.SinVida = state
-        if state then
-            if nocheTog then pcall(function() nocheTog:Set(false) end) end
-            if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
-            if finalTog then pcall(function() finalTog:Set(false) end) end
-            if skypeTog then pcall(function() skypeTog:Set(false) end) end
-        end
-        ApplySinVida(state)
-    end
-})
-
-finalTog = Tabs.Graficos:Toggle({
-    Title = "El final",
-    Value = false,
-    Callback = function(state)
-        gfxActive.Final = state
-        if state then
-            if nocheTog then pcall(function() nocheTog:Set(false) end) end
-            if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
-            if sinVidaTog then pcall(function() sinVidaTog:Set(false) end) end
-            if skypeTog then pcall(function() skypeTog:Set(false) end) end
-        end
-        ApplyElFinal(state)
-    end
-})
-
-skypeTog = Tabs.Graficos:Toggle({
-    Title = "skype",
-    Value = false,
-    Callback = function(state)
-        gfxActive.Skype = state
-        if state then
-            if nocheTog then pcall(function() nocheTog:Set(false) end) end
-            if atardecerTog then pcall(function() atardecerTog:Set(false) end) end
-            if sinVidaTog then pcall(function() sinVidaTog:Set(false) end) end
-            if finalTog then pcall(function() finalTog:Set(false) end) end
-        end
-        ApplySkype(state)
-    end
-})
-
-persistToggle("GfxNoche", nocheTog, function() return gfxActive.Noche == true end)
-persistToggle("GfxAtardecer", atardecerTog, function() return gfxActive.Atardecer == true end)
-persistToggle("GfxSinVida", sinVidaTog, function() return gfxActive.SinVida == true end)
-persistToggle("GfxFinal", finalTog, function() return gfxActive.Final == true end)
-persistToggle("GfxSkype", skypeTog, function() return gfxActive.Skype == true end)
 end
 
 do
