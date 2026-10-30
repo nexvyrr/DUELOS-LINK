@@ -199,7 +199,7 @@ local Window = WindUI:CreateWindow({
     BackgroundImageTransparency = 0.8,
     OpenButton = {
         Title = "Open HUB",
-        Icon = "rbxthumb://type=Asset&id=118232139384203&w=420&h=420",
+        Icon = "rbxthumb://type=Asset&id=6401310780&w=420&h=420",
         IconSize = 9,
         CornerRadius = UDim.new(1),
         StrokeThickness = 2,
