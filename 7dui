@@ -1122,6 +1122,9 @@ local dmvsInfectionRoleAttributes = {"InfectionInfected", "IsInfected", "Infecte
 local dmvsInfectionModeAttributes = {"GameMode", "MatchMode", "Mode"}
 local dmvsInfectionState = {
     Active = false,
+    GuiActive = false,
+    Roles = {},
+    LocalRole = nil,
     LastRefresh = -math.huge,
     RefreshInterval = 0.4,
     RoleTeams = {},
@@ -1233,6 +1236,44 @@ local function dmvsReadInfectionRoster(teams)
     end
 end
 
+local function dmvsReadInfectionGui()
+    local main = playerGui:FindFirstChild("Main")
+    local frame = main and main:FindFirstChild("FFATopFrame")
+    local list = frame and frame:FindFirstChild("PlrList")
+    local label1 = frame and frame:FindFirstChild("Label1")
+    local label2 = frame and frame:FindFirstChild("Label2")
+    if not (frame and frame:IsA("GuiObject") and frame.Visible
+        and list and list:IsA("Frame") and list.Visible
+        and label2 and label2:IsA("TextLabel") and label2.Text == "Infection") then
+        return false, {}, nil
+    end
+    local roles = {}
+    for _, row in ipairs(list:GetChildren()) do
+        if row:IsA("Frame") and row.Name:match("^Player%d+$") and row.Visible then
+            local headshot = row:FindFirstChild("Headshot")
+            local status = row:FindFirstChild("Kills")
+            if headshot and headshot:IsA("ImageLabel") and status and status:IsA("TextLabel") then
+                local role = status.Text
+                if role == "Zombie" or role == "Survivor" then
+                    local userId = tonumber(headshot.Image:match("[?&]id=(%d+)"))
+                    local other = userId and Players:GetPlayerByUserId(userId)
+                    if other then roles[other] = role end
+                end
+            end
+        end
+    end
+    local localRole = roles[player]
+    if label1 and label1:IsA("TextLabel") then
+        local headline = label1.Text
+        if headline:find("You're INFECTED!", 1, true) == 1 then
+            localRole = "Zombie"
+        elseif headline:find("Survive!", 1, true) == 1 then
+            localRole = "Survivor"
+        end
+    end
+    return true, roles, localRole
+end
+
 local function dmvsClearInfectionRound(ended)
     local state = dmvsInfectionState
     table.clear(state.Converted)
@@ -1242,6 +1283,9 @@ local function dmvsClearInfectionRound(ended)
     table.clear(state.Inferred)
     table.clear(state.Targets)
     table.clear(state.RoleTeams)
+    table.clear(state.Roles)
+    state.LocalRole = nil
+    state.GuiActive = false
     state.Active = false
     state.RoundEnded = ended == true
     state.LastRefresh = -math.huge
@@ -1259,10 +1303,11 @@ local function dmvsRefreshInfectionState(force)
     state.HasMatchContext = true
     state.LastLocalGame = localGame
     state.LastMatchId = matchId
-    if not force and now - state.LastRefresh < state.RefreshInterval then
+    if not force and now - state.LastRefresh < (state.GuiActive and 0.15 or state.RefreshInterval) then
         return state
     end
     state.LastRefresh = now
+    local guiActive, guiRoles, guiLocalRole = dmvsReadInfectionGui()
     local regularRoster = dmvsRefreshScoreboardTeams(false)
     local foundPatientZero = false
     local ownCharacter = player.Character
@@ -1317,10 +1362,14 @@ local function dmvsRefreshInfectionState(force)
         end
     end
     local active = not state.RoundEnded and
-        (modeAttribute == "infection" or
-            (not modeAttribute and (foundPatientZero or
-                (state.Active and not dmvsTeamResolverState.InGame))))
+        (guiActive or (not dmvsTeamResolverState.InGame and
+            (modeAttribute == "infection" or
+                (not modeAttribute and (foundPatientZero or
+                    (state.Active and not state.GuiActive))))))
     if not active then
+        state.GuiActive = false
+        state.LocalRole = nil
+        table.clear(state.Roles)
         if modeAttribute and modeAttribute ~= "infection" and next(state.LateJoiners) ~= nil then
             table.clear(state.LateJoiners)
         end
@@ -1459,7 +1508,32 @@ local function dmvsRefreshInfectionState(force)
         end
     end
     state.Targets = targets
-    if targetChanged and dmvsInvalidateRedirectSelection then
+    local roles = guiRoles
+    for _, other in ipairs(allPlayers) do
+        if roles[other] == nil then
+            if markers[other] == true or targets[other] then
+                roles[other] = "Zombie"
+            elseif markers[other] == false then
+                roles[other] = "Survivor"
+            end
+        end
+    end
+    local localRole = guiLocalRole or roles[player]
+    local rolesChanged = state.GuiActive ~= guiActive or state.LocalRole ~= localRole
+    if not rolesChanged then
+        for other, role in pairs(state.Roles) do
+            if roles[other] ~= role then rolesChanged = true; break end
+        end
+    end
+    if not rolesChanged then
+        for other, role in pairs(roles) do
+            if state.Roles[other] ~= role then rolesChanged = true; break end
+        end
+    end
+    state.GuiActive = guiActive
+    state.Roles = roles
+    state.LocalRole = localRole
+    if (targetChanged or rolesChanged) and dmvsInvalidateRedirectSelection then
         dmvsInvalidateRedirectSelection()
     end
     return state
@@ -1469,10 +1543,12 @@ dmvsIsInfectionMode = function()
     return dmvsRefreshInfectionState(false).Active
 end
 
-local function dmvsIsInfectedTarget(targetPlayer)
-    if not targetPlayer then return false end
+local function dmvsIsInfectionEnemyTarget(targetPlayer)
+    if not targetPlayer or targetPlayer == player then return false end
     local state = dmvsRefreshInfectionState(false)
-    return state.Active and state.Targets[targetPlayer] == true
+    local targetRole = state.Roles[targetPlayer]
+    return state.Active and state.LocalRole ~= nil and targetRole ~= nil
+        and state.LocalRole ~= targetRole
 end
 
 local function dmvsInfectionMatchAllowed(targetPlayer, allowMissingCharacter)
@@ -1534,7 +1610,7 @@ dmvsIsInSameGame = function(targetPlayer)
     end
 
     if dmvsIsInfectionMode() then
-        return dmvsInfectionMatchAllowed(targetPlayer) and dmvsIsInfectedTarget(targetPlayer)
+        return dmvsInfectionMatchAllowed(targetPlayer) and dmvsIsInfectionEnemyTarget(targetPlayer)
     end
 
     local roster = dmvsRefreshScoreboardTeams(false)
@@ -1594,8 +1670,11 @@ local function dmvsPlayersAreEnemies(firstPlayer, secondPlayer)
     if not firstPlayer or not secondPlayer or firstPlayer == secondPlayer then
         return false
     end
-    if dmvsIsInfectionMode() then
-        return dmvsIsInfectedTarget(secondPlayer)
+    local infection = dmvsRefreshInfectionState(false)
+    if infection.Active then
+        local firstRole = firstPlayer == player and infection.LocalRole or infection.Roles[firstPlayer]
+        local secondRole = secondPlayer == player and infection.LocalRole or infection.Roles[secondPlayer]
+        return firstRole ~= nil and secondRole ~= nil and firstRole ~= secondRole
     end
 
     local firstTeam = dmvsResolvePlayerTeam(firstPlayer)
