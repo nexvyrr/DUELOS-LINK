@@ -1066,7 +1066,7 @@ end)
 
 local Window = WindUI:CreateWindow({
 	Theme = "Crimson",
-	Title = "NEXVYRHUB | DUELS <font color='#FFD700'>[v3.5] </font>",
+	Title = "NEXVYRHUB | DUELS <font color='#FFD700'>[v3.2] </font>",
 	Author = "By 7.dui🇲🇽",
 	Folder = "Nexvyr_WindUI",
 	Acrylic = false,
@@ -1093,6 +1093,7 @@ local NovedadSection = Window:Section({ Title = "Novedad", Opened = true })
 local ExtrasScriptsSection = Window:Section({ Title = "Extras scripts", Opened = true })
 local PrincipalesSection = Window:Section({ Title = "Combate principal", Opened = true })
 local FarmeoSection = Window:Section({ Title = "Zona de farmeo", Opened = true })
+local EfectosSection = Window:Section({ Title = "Efectos", Opened = true })
 local ConfigSection = Window:Section({ Title = "Configuraciones", Opened = true })
 local Tabs = {
 	Informaciones = NovedadSection:Tab({ Title = "informaciónes", Icon = "solar:info-circle-bold" }),
@@ -1107,6 +1108,7 @@ local Tabs = {
 	Tramposo = PrincipalesSection:Tab({ Title = "Tramposo", Icon = "solar:bolt-bold" }),
 	Farm = FarmeoSection:Tab({ Title = "Farmear evento", Icon = "solar:gift-bold" }),
 	RachaFarm = FarmeoSection:Tab({ Title = "Farmear racha", Icon = "solar:flame-bold" }),
+	Efectos = EfectosSection:Tab({ Title = "Efectos", Icon = "solar:magic-stick-3-bold" }),
 	Animaciones = ConfigSection:Tab({ Title = "Animaciones", Icon = "solar:smile-circle-bold" }),
 	Sonidos = ConfigSection:Tab({ Title = "Sonidos", Icon = "solar:speaker-bold" }),
 	Music = ConfigSection:Tab({ Title = "Música", Icon = "solar:music-note-2-bold" }),
@@ -1121,11 +1123,13 @@ do
 	local WHITE = "#FFFFFF"
 	local PINK = "#FF8FD0"
 	local lines = {
+		{ "+Autoshoot / Silent aim arreglados", GREEN },
 		{ "+Autoload", GREEN },
 		{ "+Nuevos visuales", GREEN },
 		{ "+nueva API script protección", GREEN },
 		{ "+Notificaciones en tiempo real", GREEN },
 		{ "+Kill All [Beta v2]", YELLOW },
+		{ "+nueva pestaña de efectos", GREEN },
 	}
 	local rendered = {}
 	for _, line in ipairs(lines) do
@@ -1138,6 +1142,26 @@ do
 	local para = Tabs.Informaciones:Paragraph({ Title = table.concat(rendered, "\n"), })
 	pcall(function()
 		for _, d in ipairs(para.ElementFrame:GetDescendants()) do
+			if d:IsA("TextLabel") then
+				d.RichText = true
+			end
+		end
+	end)
+
+	local LIGHT_RED = "#FF6B6B"
+	local kriphLines = {
+		string.format("<font color='%s'>¿Buscas un obfuscador gratis? kriph es para ti.</font>", WHITE),
+		"",
+		string.format("<font color='%s'>Dirigido por </font><font color='%s'>Open HUB Community</font><font color='%s'>, kriph es una página web para proteger tus scripts de delta! (para los que van empezando a crear scripts).</font>", WHITE, PINK, WHITE),
+		string.format("<font color='%s'>Cuenta con muchas funciones y lo mejor es que es fácil de entender!</font>", WHITE),
+		"",
+		string.format("<font color='%s'>sitio web ---&gt;</font>", WHITE),
+		"",
+		string.format("<font color='%s'>https://kriph.pages.dev/</font>", LIGHT_RED),
+	}
+	local kriphPara = Tabs.Informaciones:Paragraph({ Title = table.concat(kriphLines, "\n"), })
+	pcall(function()
+		for _, d in ipairs(kriphPara.ElementFrame:GetDescendants()) do
 			if d:IsA("TextLabel") then
 				d.RichText = true
 			end
@@ -6261,6 +6285,538 @@ do
 
 	persistToggle("TogAutoFarmEvent", UIElements.TogAutoFarmEvent, function()
 		return getgenv().AutoEventFarm == true
+	end)
+end
+
+
+do
+	local TweenService = game:GetService("TweenService")
+	local Debris = game:GetService("Debris")
+	local EFFECTS_URL = "https://raw.githubusercontent.com/Xyraniz/Roblox/refs/heads/main/Scripts/Utilities/Dmvs-Effects.luau"
+	local FROSTBITE_BODY_COLOR = Color3.fromRGB(53, 124, 133)
+	local DEFAULT_EFFECT = "SpiritOverload"
+
+	local builders = nil
+	local names = {}
+	local loading = false
+
+	local state = {
+		enabled = false,
+		selected = nil,
+		wanted = nil,
+		templates = {},
+		pending = {},
+		spawned = {},
+		tracked = {},
+		positions = {},
+		posConns = {},
+	}
+
+	local function disconnectList(list)
+		for i = #list, 1, -1 do
+			pcall(function() list[i]:Disconnect() end)
+			list[i] = nil
+		end
+	end
+
+	local function bodyPart(target, character)
+		character = character or target.Character
+		return character and character:FindFirstChild("HumanoidRootPart") or nil
+	end
+
+	local function savePosition(target, part)
+		if part and part:IsA("BasePart") then
+			state.positions[target] = {CFrame = part.CFrame, Time = os.clock()}
+		end
+	end
+
+	local function untrack(target)
+		local t = state.tracked[target]
+		if not t then return end
+		disconnectList(t.char)
+		disconnectList(t.plr)
+		disconnectList(t.death)
+		state.tracked[target] = nil
+		state.positions[target] = nil
+	end
+
+	local function track(target)
+		if target == player or state.tracked[target] or not state.enabled then return end
+		local t = {char = {}, plr = {}, death = {}}
+		state.tracked[target] = t
+
+		local function bindCharacter(character)
+			disconnectList(t.char)
+			disconnectList(t.death)
+			t.Character = character
+			t.Part = bodyPart(target, character)
+			t.Humanoid = nil
+			if not character then return end
+
+			local function snapshot()
+				if t.Character ~= character then return end
+				savePosition(target, bodyPart(target, character) or t.Part)
+			end
+			local function bindHumanoid(humanoid)
+				if t.Humanoid == humanoid then return end
+				disconnectList(t.death)
+				t.Humanoid = humanoid
+				if humanoid then
+					t.death[1] = humanoid.Died:Connect(snapshot)
+					t.death[2] = humanoid.HealthChanged:Connect(function(health)
+						if health <= 0 then snapshot() end
+					end)
+					if humanoid.Health <= 0 then snapshot() end
+				end
+			end
+			bindHumanoid(character:FindFirstChildOfClass("Humanoid"))
+			if t.Part then snapshot() end
+			t.char[1] = character.ChildAdded:Connect(function(child)
+				if child:IsA("Humanoid") then
+					bindHumanoid(child)
+				elseif child.Name == "HumanoidRootPart" then
+					t.Part = child
+					snapshot()
+				end
+			end)
+			t.char[2] = character.ChildRemoved:Connect(function(child)
+				if child == t.Part then
+					savePosition(target, child)
+					t.Part = bodyPart(target, character)
+				elseif child == t.Humanoid then
+					bindHumanoid(nil)
+				end
+			end)
+		end
+
+		t.plr[1] = target.CharacterAdded:Connect(bindCharacter)
+		t.plr[2] = target.CharacterRemoving:Connect(function(character)
+			if t.Character ~= character then return end
+			savePosition(target, bodyPart(target, character) or t.Part)
+			bindCharacter(nil)
+		end)
+		if target.Character then bindCharacter(target.Character) end
+	end
+
+	local function getVictimCFrame(victim)
+		local part = bodyPart(victim)
+		if part and part:IsA("BasePart") then return part.CFrame end
+		local snap = state.positions[victim]
+		if snap and os.clock() - snap.Time <= 3 then return snap.CFrame end
+		return nil
+	end
+
+	local function getTemplate(name)
+		if state.templates[name] then return state.templates[name] end
+		while loading do task.wait() end
+		local builder = builders and builders[name]
+		if type(builder) ~= "function" then return nil end
+		if state.pending[name] then
+			repeat task.wait() until not state.pending[name]
+			return state.templates[name]
+		end
+		state.pending[name] = true
+		local ok, result = pcall(builder)
+		state.pending[name] = nil
+		if not ok or typeof(result) ~= "Instance"
+			or not (result:IsA("BasePart") or result:IsA("Model") or result:IsA("Folder")) then
+			if ok and typeof(result) == "Instance" then result:Destroy() end
+			return nil
+		end
+		state.templates[name] = result
+		return result
+	end
+
+	local function freezeFrostbiteVictim(victim)
+		if not state.enabled or state.selected ~= "Frostbite" then return end
+		local character = victim and victim.Character
+		if not character or character == player.Character
+			or not character:IsDescendantOf(workspace) then return end
+		for _, part in ipairs(character:GetDescendants()) do
+			if part:IsA("BasePart") then
+				local position = part.CFrame
+				pcall(function()
+					part.Anchored = true
+					part.CanCollide = false
+					part.CFrame = position
+					if part.Name ~= "HumanoidRootPart" then
+						part.Color = FROSTBITE_BODY_COLOR
+						part.Material = Enum.Material.Ice
+						part.MaterialVariant = ""
+					end
+				end)
+			end
+		end
+	end
+
+	local function spawnEffect(cf)
+		if not state.enabled then return end
+		local selected = state.selected
+		local template = getTemplate(selected)
+		if not template or not state.enabled then return end
+		local ok, clone = pcall(function() return template:Clone() end)
+		if not ok or not clone then return end
+
+		local holder = Instance.new("Model")
+		holder.Name = "DMVS_" .. selected .. "_Local"
+		clone.Parent = holder
+
+		local origin = clone:GetAttribute("DMVS_EffectOrigin")
+		if typeof(origin) ~= "CFrame" then
+			origin = CFrame.new()
+			if clone:IsA("BasePart") then
+				origin = clone.CFrame
+			elseif clone:IsA("Model") then
+				origin = clone:GetPivot()
+			end
+		end
+
+		local descendants = holder:GetDescendants()
+		local parts, unwanted, attached, component = {}, {}, {}, {}
+		local joints, animations, effectObjects, animatorByModel = {}, {}, {}, {}
+		for _, d in ipairs(descendants) do
+			if d:IsA("LuaSourceContainer") then
+				unwanted[#unwanted + 1] = d
+			elseif d:IsA("BasePart") then
+				parts[#parts + 1] = d
+				component[d] = d
+			end
+		end
+		for _, d in ipairs(unwanted) do d:Destroy() end
+		if #parts == 0 then holder:Destroy() return end
+
+		for _, d in ipairs(descendants) do
+			if d:IsDescendantOf(holder) then
+				if d:IsA("JointInstance") or d:IsA("WeldConstraint") then
+					joints[#joints + 1] = d
+				elseif d:IsA("Animation") and d:GetAttribute("DMVS_AutoPlay") == true
+					and d.AnimationId ~= "" then
+					animations[#animations + 1] = d
+				elseif d:IsA("ParticleEmitter") or d:IsA("Sound") then
+					effectObjects[#effectObjects + 1] = d
+				end
+				if d:IsA("Animator") then
+					local model = d:FindFirstAncestorWhichIsA("Model")
+					while model and model ~= holder do
+						if not animatorByModel[model] then animatorByModel[model] = d end
+						model = model:FindFirstAncestorWhichIsA("Model")
+					end
+				end
+			end
+		end
+
+		local function findRoot(part)
+			local parent = component[part]
+			if not parent then return nil end
+			while component[parent] ~= parent do
+				component[parent] = component[component[parent]]
+				parent = component[parent]
+			end
+			return parent
+		end
+		for _, joint in ipairs(joints) do
+			local a, b = joint.Part0, joint.Part1
+			if a and b and component[a] and component[b] then
+				local ra, rb = findRoot(a), findRoot(b)
+				if ra ~= rb then component[ra] = rb end
+				attached[a] = true
+				attached[b] = true
+			end
+		end
+		local anchoredRoot = {}
+		for _, part in ipairs(parts) do
+			local root = findRoot(part)
+			if attached[part] then
+				local previous = anchoredRoot[root]
+				if not previous or part.Name == "HumanoidRootPart"
+					or (previous.Name ~= "HumanoidRootPart" and part.Name == "Body") then
+					anchoredRoot[root] = part
+				end
+			end
+		end
+		for _, part in ipairs(parts) do
+			part.Anchored = true
+			part.CanCollide = false
+			part.CanTouch = false
+			part.CanQuery = false
+			part.Massless = true
+			part.CFrame = cf * origin:ToObjectSpace(part.CFrame)
+		end
+		for _, part in ipairs(parts) do
+			part.Anchored = not attached[part] or anchoredRoot[findRoot(part)] == part
+		end
+
+		if not state.enabled then
+			holder:Destroy()
+			return
+		end
+		holder.Parent = workspace
+		state.spawned[holder] = true
+
+		local function alive()
+			return state.spawned[holder] == true and holder.Parent ~= nil and state.enabled
+		end
+
+		local cleanupAfter = 6
+		local fallbackAnimatorModel
+		for _, d in ipairs(descendants) do
+			if d:IsA("Model") and animatorByModel[d] then
+				fallbackAnimatorModel = d
+				break
+			end
+		end
+		for _, animation in ipairs(animations) do
+			local model = animation:FindFirstAncestorWhichIsA("Model")
+			if not model or model == holder then model = fallbackAnimatorModel end
+			local animator = model and animatorByModel[model]
+			if animator then
+				local success, animTrack = pcall(function() return animator:LoadAnimation(animation) end)
+				if success and animTrack then
+					pcall(function()
+						animTrack.Priority = Enum.AnimationPriority.Action4
+						animTrack.Looped = false
+						animTrack:Play(0.1)
+					end)
+					cleanupAfter = math.max(cleanupAfter, 8)
+					task.delay(8, function()
+						pcall(function() animTrack:Stop(0.1) animTrack:Destroy() end)
+					end)
+				end
+			end
+		end
+
+		if clone:GetAttribute("DMVS_EffectType") == "Rocket" then
+			local rocket = clone:FindFirstChild("Rocket")
+			local body = rocket and (rocket.PrimaryPart or rocket:FindFirstChild("Body"))
+			if body and body:IsA("BasePart") then
+				task.delay(0.45, function()
+					if alive() and body.Parent then
+						pcall(function()
+							TweenService:Create(body,
+								TweenInfo.new(1.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+								{CFrame = body.CFrame + Vector3.new(0, 18, 0)}):Play()
+						end)
+					end
+				end)
+			end
+		end
+
+		for _, obj in ipairs(effectObjects) do
+			if obj:IsA("ParticleEmitter") then
+				obj.Enabled = false
+				local count = obj:GetAttribute("EmitCount")
+				if typeof(count) ~= "number" then
+					local other = obj:GetAttribute("KillEffectEmitCount")
+					count = typeof(other) == "number" and other or 10
+				end
+				local delaySeconds = obj:GetAttribute("EmitDelay")
+				delaySeconds = typeof(delaySeconds) == "number" and math.max(0, delaySeconds) or 0
+				local duration = obj:GetAttribute("EmitDuration")
+				if typeof(duration) ~= "number" then
+					duration = obj.Parent and obj.Parent.Name == "enable for 1s" and 1 or 0
+				end
+				duration = math.max(duration, 0)
+				local scale = obj.TimeScale
+				local beginScale = obj:GetAttribute("TimeScale_Start")
+				local endScale = obj:GetAttribute("TimeScale_End")
+				local scaleDuration = obj:GetAttribute("TimeScale_Duration")
+				if typeof(beginScale) == "number" and beginScale > 0 then
+					pcall(function() obj.TimeScale = beginScale end)
+					scale = beginScale
+				end
+				local life = obj.Lifetime.Max / math.max(scale, 0.01)
+				cleanupAfter = math.max(cleanupAfter, delaySeconds + duration + life + 1)
+				task.delay(delaySeconds, function()
+					if not alive() or not obj.Parent then return end
+					if count > 0 then
+						pcall(function() obj:Emit(math.ceil(count)) end)
+					end
+					if duration > 0 then
+						pcall(function()
+							obj.Rate = math.max(obj.Rate, 1)
+							obj.Enabled = true
+						end)
+						task.delay(duration, function()
+							if obj.Parent then obj.Enabled = false end
+						end)
+					end
+					if typeof(endScale) == "number" and endScale > 0 and endScale ~= beginScale then
+						if typeof(scaleDuration) == "number" and scaleDuration > 0 then
+							pcall(function()
+								TweenService:Create(obj,
+									TweenInfo.new(scaleDuration, Enum.EasingStyle.Linear),
+									{TimeScale = endScale}):Play()
+							end)
+						else
+							pcall(function() obj.TimeScale = endScale end)
+						end
+					end
+				end)
+			elseif obj:IsA("Sound") and obj.SoundId ~= "" then
+				local delaySeconds = obj:GetAttribute("PlayDelay")
+				delaySeconds = typeof(delaySeconds) == "number" and math.max(0, delaySeconds) or 0
+				task.delay(delaySeconds, function()
+					if alive() and obj.Parent then
+						pcall(function() obj:Play() end)
+					end
+				end)
+				cleanupAfter = math.max(cleanupAfter, delaySeconds + 6)
+			end
+		end
+
+		cleanupAfter = math.min(cleanupAfter, 30)
+		Debris:AddItem(holder, cleanupAfter)
+		task.delay(cleanupAfter, function()
+			state.spawned[holder] = nil
+		end)
+	end
+
+
+	local function stopEffects()
+		disconnectList(state.posConns)
+		for target in pairs(state.tracked) do untrack(target) end
+		for holder in pairs(state.spawned) do
+			pcall(function() holder:Destroy() end)
+			state.spawned[holder] = nil
+		end
+		table.clear(state.positions)
+	end
+
+	local killConn, killPending, killRequest = nil, false, 0
+
+	local function onKill(killer, victim)
+		if killer ~= player or typeof(victim) ~= "Instance" or not victim:IsA("Player") then return end
+		if not state.enabled then return end
+		local cf = getVictimCFrame(victim)
+		if state.selected == "Frostbite" then freezeFrostbiteVictim(victim) end
+		if cf then pcall(spawnEffect, cf) end
+	end
+
+	local function syncKillEvent()
+		if not state.enabled then
+			killRequest += 1
+			killPending = false
+			if killConn then
+				killConn:Disconnect()
+				killConn = nil
+			end
+			return
+		end
+		if killConn or killPending then return end
+		killRequest += 1
+		local request = killRequest
+		killPending = true
+		task.spawn(function()
+			while request == killRequest do
+				local packages = ReplicatedStorage:FindFirstChild("Packages")
+				local networking = packages and packages:FindFirstChild("Networking")
+				local remote = networking and networking:FindFirstChild("RE/Combat/Killed")
+				if remote and remote:IsA("RemoteEvent") then
+					killConn = remote.OnClientEvent:Connect(onKill)
+					break
+				end
+				task.wait(1)
+			end
+			if request == killRequest then killPending = false end
+		end)
+	end
+
+	local function setEnabled(value)
+		value = value == true
+		if state.enabled == value then return end
+		state.enabled = value
+		stopEffects()
+		syncKillEvent()
+		if not value then return end
+		if state.selected then task.spawn(getTemplate, state.selected) end
+		state.posConns[1] = Players.PlayerAdded:Connect(track)
+		state.posConns[2] = Players.PlayerRemoving:Connect(untrack)
+		for _, p in ipairs(Players:GetPlayers()) do track(p) end
+	end
+
+	local function selectEffect(option)
+		if type(option) ~= "string" then return end
+		state.wanted = option
+		if builders and type(builders[option]) == "function" then
+			state.selected = option
+			if state.enabled then task.spawn(getTemplate, option) end
+		end
+	end
+
+	Tabs.Efectos:Section({ Title = "Efectos de muerte", Icon = "solar:magic-stick-3-bold" })
+
+	UIElements.TogEfectos = Tabs.Efectos:Toggle({
+		Title = "Efectos de muerte",
+		Value = false,
+		Callback = setEnabled,
+	})
+
+	UIElements.DropEfecto = Tabs.Efectos:Dropdown({
+		Title = "Efecto",
+		Values = { "Cargando..." },
+		Value = "Cargando...",
+		Callback = selectEffect,
+	})
+
+	persistToggle("TogEfectos", UIElements.TogEfectos, function()
+		return state.enabled
+	end)
+
+	persistDropdown("DropEfecto", UIElements.DropEfecto, function()
+		return state.selected
+	end, selectEffect)
+
+	task.spawn(function()
+		loading = true
+		local ok, loaded = pcall(function()
+			return loadstring(game:HttpGet(EFFECTS_URL))()
+		end)
+		if ok and type(loaded) == "table" then
+			local list = {}
+			for name, builder in pairs(loaded) do
+				if type(name) == "string" and name ~= "" and type(builder) == "function" then
+					list[#list + 1] = name
+				end
+			end
+			table.sort(list, function(x, y)
+				local lx, ly = x:lower(), y:lower()
+				if lx == ly then return x < y end
+				return lx < ly
+			end)
+			if #list > 0 then
+				builders = loaded
+				names = list
+			end
+		end
+		loading = false
+
+		if not builders then
+			pcall(function()
+				WindUI:Notify({ Title = "Efectos", Content = "No se pudieron cargar los efectos.", Duration = 5 })
+			end)
+			pcall(function() UIElements.DropEfecto:Refresh({ "No disponible" }) end)
+			return
+		end
+
+		local choice = state.wanted
+		if not (choice and builders[choice]) then
+			choice = table.find(names, DEFAULT_EFFECT) and DEFAULT_EFFECT or names[1]
+		end
+		state.selected = choice
+		state.wanted = choice
+		pcall(function() UIElements.DropEfecto:Refresh(names) end)
+		pcall(function() UIElements.DropEfecto:Select(choice) end)
+		if state.enabled then task.spawn(getTemplate, choice) end
+	end)
+
+	pcall(function()
+		Window:OnDestroy(function()
+			setEnabled(false)
+			for name, template in pairs(state.templates) do
+				pcall(function() template:Destroy() end)
+				state.templates[name] = nil
+			end
+		end)
 	end)
 end
 
