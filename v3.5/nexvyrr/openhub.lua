@@ -1066,7 +1066,7 @@ end)
 
 local Window = WindUI:CreateWindow({
 	Theme = "Crimson",
-	Title = "NEXVYRHUB | DUELS <font color='#FFD700'>[v3.2] </font>",
+	Title = "NEXVYRHUB | DUELS <font color='#FFD700'>[v3.5] </font>",
 	Author = "By 7.dui🇲🇽",
 	Folder = "Nexvyr_WindUI",
 	Acrylic = false,
